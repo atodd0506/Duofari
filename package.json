@@ -1,0 +1,25 @@
+{
+  "name": "duofari",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Safari web extension for iPhone Duo: header bars and images continue under Safari's side controls while text stays clear of them.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "npm run test:unit && npm run test:fixtures && npm run test:popup",
+    "test:unit": "node --test \"test/unit/*.test.mjs\"",
+    "test:fixtures": "node test/run-fixtures.mjs",
+    "test:popup": "node test/run-popup.mjs",
+    "test:live": "node test/run-live.mjs",
+    "xcodeproj": "python3 scripts/gen-xcodeproj.py",
+    "package": "node scripts/package.mjs",
+    "icons": "node scripts/build-icons.mjs",
+    "fixture-images": "node scripts/build-fixture-images.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
