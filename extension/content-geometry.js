@@ -12,6 +12,7 @@
 (function () {
   'use strict';
   const D = (globalThis.Duofari = globalThis.Duofari || {});
+  if (D.controller) return; // already running in this page
 
   const DUO_ASPECT = 678 / 466;
   const MIN_COLUMN = 60;

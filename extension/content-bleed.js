@@ -10,6 +10,7 @@
 (function () {
   'use strict';
   const D = (globalThis.Duofari = globalThis.Duofari || {});
+  if (D.controller) return; // already running in this page
 
   const EPS = 0.75;          // px tolerance when comparing layout boxes
   const EDGE_EPS = 1.25;     // px tolerance when checking an extended edge

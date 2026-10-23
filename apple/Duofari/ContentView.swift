@@ -23,7 +23,7 @@ struct ContentView: View {
                     header
                     if !device.isDuo {
                         notice(symbol: "info.circle", tint: Color(.secondaryLabel),
-                               text: "Duofari needs iPhone Duo. On this device Safari has no side column, so it stays idle.")
+                               text: "Duofari works on iPhone Duo’s outer display, where Safari keeps its controls in a side column. On this screen Safari has no column, so Duofari stays idle.")
                     }
                     statusRow
                     section("How it looks") {

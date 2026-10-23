@@ -49,7 +49,7 @@ const CASES = [
   { name: 'unfolded', file: 'appstore-story.html', pose: 'unfolded', active: false, reason: 'no-column' },
   { name: 'other-iphone', file: 'appstore-story.html', pose: 'iphone', active: false, reason: 'not-duo' },
   { name: 'disabled', file: 'appstore-story.html', active: false, reason: 'disabled', settings: { enabled: false } },
-  { name: 'excluded-site', file: 'appstore-story.html', active: false, reason: 'site-disabled', settings: { disabledSites: ['127.0.0.1'] } },
+  { name: 'site-off', file: 'appstore-story.html', active: false, reason: 'site-disabled', settings: { disabledSites: ['127.0.0.1'] } },
 ];
 
 const filter = process.argv.slice(2);

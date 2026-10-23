@@ -408,7 +408,7 @@
 
   function onMessage(message, sender, sendResponse) {
     if (!message || typeof message.type !== 'string' || !message.type.startsWith('duofari:')) return;
-    if (message.type === 'duofari:rescan') {
+    if (message.type === 'duofari:rescan' && document.readyState !== 'loading') {
       state.unstable = false;
       state.flips = [];
       runNow();
@@ -427,8 +427,6 @@
       if (relayout && state.active) resetChanges();
       runNow();
     });
-    if (D.api && D.api.runtime && D.api.runtime.onMessage) D.api.runtime.onMessage.addListener(onMessage);
-
     observer.observe(document.documentElement, OBSERVE);
     if (globalThis.ResizeObserver && document.body) {
       new ResizeObserver(() => schedule()).observe(document.body);
@@ -458,6 +456,8 @@
     status: () => Promise.resolve(status()),
   };
 
+  // Answer the popup even while the page is still loading.
+  if (D.api && D.api.runtime && D.api.runtime.onMessage) D.api.runtime.onMessage.addListener(onMessage);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
   else start();
 })();

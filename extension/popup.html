@@ -12,74 +12,94 @@
     <img src="images/icon-96.png" width="40" height="40" alt="">
     <div>
       <h1>Duofari</h1>
-      <p class="sub">Full-width pages beside Safari’s side controls</p>
+      <p class="sub" data-i18n="popupSubtitle">Pages that reach under Safari’s side controls</p>
     </div>
   </header>
 
   <section class="status" id="status" aria-live="polite">
-    <div class="status-dot" id="status-dot"></div>
-    <div>
-      <p class="status-title" id="status-title">Checking this page…</p>
+    <div class="status-dot" aria-hidden="true"></div>
+    <div class="status-text">
+      <p class="status-title" id="status-title" data-i18n="statusChecking">Checking this page…</p>
       <p class="status-detail" id="status-detail"></p>
+      <button type="button" class="action" id="status-action" hidden></button>
     </div>
   </section>
 
-  <ul class="group">
+  <ul class="group" id="site-group" hidden>
     <li>
-      <label for="enabled">Duofari</label>
-      <input type="checkbox" role="switch" id="enabled" data-setting="enabled">
-    </li>
-    <li id="site-row" hidden>
-      <label for="site">On for <span id="site-name"></span></label>
+      <label for="site"><span data-i18n="onForSite">On for</span> <span id="site-name"></span></label>
       <input type="checkbox" role="switch" id="site">
     </li>
+    <li class="note" id="site-note" hidden data-i18n="siteExcludedNote">Off by default for web apps that draw their own full-screen interface.</li>
   </ul>
 
-  <h2>Extend under the controls</h2>
+  <h2 data-i18n="sectionExtend">Extend under the controls</h2>
   <ul class="group">
     <li>
-      <label for="bands">Header bars and backgrounds</label>
+      <label for="bands" data-i18n="settingBands">Header bars and backgrounds</label>
       <input type="checkbox" role="switch" id="bands" data-setting="bands">
     </li>
     <li>
-      <label for="media">Full-width images and video</label>
+      <label for="media" data-i18n="settingMedia">Lead image and wide artwork</label>
       <input type="checkbox" role="switch" id="media" data-setting="media">
     </li>
-    <li>
-      <label for="breakout">Widen images inside page margins</label>
-      <input type="checkbox" role="switch" id="breakout" data-setting="breakout">
+    <li class="stack">
+      <div class="row">
+        <label for="allImages" data-i18n="settingAllImages">Every full-width image</label>
+        <input type="checkbox" role="switch" id="allImages" data-setting="allImages">
+      </div>
+      <p class="hint" data-i18n="hintAllImages">Widens each one and trims a little from its top and bottom.</p>
     </li>
     <li class="stack">
-      <span class="label" id="style-label">Image style</span>
-      <div class="segmented" role="radiogroup" aria-labelledby="style-label" data-setting="imageStyle">
-        <button type="button" role="radio" data-value="fill">Fill</button>
-        <button type="button" role="radio" data-value="mirror">Mirror edge</button>
+      <div class="row">
+        <label for="breakout" data-i18n="settingBreakout">Enlarge photos inside page margins</label>
+        <input type="checkbox" role="switch" id="breakout" data-setting="breakout">
       </div>
-      <p class="hint">Fill widens the picture and trims a little from the top and bottom. Mirror keeps it as is and reflects its edge under the controls.</p>
+      <p class="hint" data-i18n="hintBreakout">Photos grow to the full width before you scroll to them. Text below them moves down.</p>
     </li>
   </ul>
 
-  <h2>More</h2>
-  <ul class="group">
-    <li class="stack">
-      <span class="label" id="side-label">Controls in landscape</span>
-      <div class="segmented" role="radiogroup" aria-labelledby="side-label" data-setting="landscapeSide">
-        <button type="button" role="radio" data-value="auto">Auto</button>
-        <button type="button" role="radio" data-value="left">Left</button>
-        <button type="button" role="radio" data-value="right">Right</button>
-      </div>
-    </li>
-    <li>
-      <label for="desktopPages">Also adjust desktop-layout pages</label>
-      <input type="checkbox" role="switch" id="desktopPages" data-setting="desktopPages">
-    </li>
-    <li>
-      <label for="debug">Show what’s extended</label>
-      <input type="checkbox" role="switch" id="debug" data-setting="debug">
-    </li>
-  </ul>
+  <details class="more">
+    <summary data-i18n="sectionMore">More</summary>
+    <ul class="group">
+      <li class="stack">
+        <span class="label" id="side-label" data-i18n="settingLandscape">Safari’s controls in landscape</span>
+        <div class="segmented" role="radiogroup" aria-labelledby="side-label" data-setting="landscapeSide">
+          <button type="button" role="radio" data-value="auto" data-i18n="sideAuto">Auto</button>
+          <button type="button" role="radio" data-value="left" data-i18n="sideLeft">Left</button>
+          <button type="button" role="radio" data-value="right" data-i18n="sideRight">Right</button>
+        </div>
+        <p class="hint" data-i18n="hintLandscape">Auto extends only background colors in landscape. Choose the side if you know it to extend images too. Pages can’t reach under controls on the left.</p>
+      </li>
+      <li class="stack">
+        <div class="row">
+          <label for="holdSteady" data-i18n="settingHoldSteady">Hold pages steady</label>
+          <input type="checkbox" role="switch" id="holdSteady" data-setting="holdSteady">
+        </div>
+        <p class="hint" data-i18n="hintHoldSteady">Stops pages sliding sideways. Turn off to keep double-tap zoom and swiping back from the middle of a page; pages then slide back after you scroll.</p>
+      </li>
+      <li>
+        <label for="desktopPages" data-i18n="settingDesktop">Also adjust desktop-layout pages</label>
+        <input type="checkbox" role="switch" id="desktopPages" data-setting="desktopPages">
+      </li>
+      <li>
+        <label for="debug" data-i18n="settingDebug">Show what’s extended</label>
+        <input type="checkbox" role="switch" id="debug" data-setting="debug">
+      </li>
+      <li>
+        <label for="enabled" data-i18n="settingEnabled">Duofari on all websites</label>
+        <input type="checkbox" role="switch" id="enabled" data-setting="enabled">
+      </li>
+    </ul>
 
-  <p class="footnote">Duofari works on the outer display, where Safari keeps its buttons in a column down the side. When iPhone Duo is open, Safari uses the full width, and pages are left as they are.</p>
+    <details class="diagnostics" id="diagnostics">
+      <summary data-i18n="sectionDiagnostics">Diagnostics</summary>
+      <pre id="diagnostics-text"></pre>
+      <button type="button" class="action" id="copy-diagnostics" data-i18n="copyDiagnostics">Copy</button>
+    </details>
+  </details>
+
+  <p class="footnote" data-i18n="footnote">Duofari works on the outer display, where Safari keeps its buttons in a column down the side. When iPhone Duo is open, Safari uses the full width and pages are left as they are.</p>
 
   <script src="shared-settings.js"></script>
   <script src="popup.js"></script>

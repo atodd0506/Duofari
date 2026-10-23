@@ -6,5 +6,220 @@
   "extensionDescription": {
     "message": "On iPhone Duo, header bars and images continue under Safari’s side controls, while text stays clear of them.",
     "description": "The description of the extension, shown in Safari's extension settings."
+  },
+  "popupSubtitle": {
+    "message": "Pages that reach under Safari’s side controls",
+    "description": "Subtitle under the name at the top of the popup."
+  },
+  "statusChecking": {
+    "message": "Checking this page…"
+  },
+  "onForSite": {
+    "message": "On for",
+    "description": "Label before a website name, for the switch that turns Duofari on for that site. Example: “On for example.com”."
+  },
+  "siteExcludedNote": {
+    "message": "Off by default for web apps that draw their own full-screen interface.",
+    "description": "Shown under the per-site switch on sites Duofari leaves alone by default."
+  },
+  "sectionExtend": {
+    "message": "Extend under the controls",
+    "description": "Section heading for what Duofari extends under Safari’s side column."
+  },
+  "settingBands": {
+    "message": "Header bars and backgrounds"
+  },
+  "settingMedia": {
+    "message": "Lead image and wide artwork"
+  },
+  "settingAllImages": {
+    "message": "Every full-width image"
+  },
+  "hintAllImages": {
+    "message": "Widens each one and trims a little from its top and bottom."
+  },
+  "settingBreakout": {
+    "message": "Enlarge photos inside page margins"
+  },
+  "hintBreakout": {
+    "message": "Photos grow to the full width before you scroll to them. Text below them moves down."
+  },
+  "sectionMore": {
+    "message": "More",
+    "description": "Disclosure that shows less-used settings."
+  },
+  "settingLandscape": {
+    "message": "Safari’s controls in landscape",
+    "description": "Label for choosing which side Safari’s controls are on when iPhone Duo is held sideways."
+  },
+  "sideAuto": {
+    "message": "Auto",
+    "description": "Segment: detect automatically."
+  },
+  "sideLeft": {
+    "message": "Left",
+    "description": "Segment: left side."
+  },
+  "sideRight": {
+    "message": "Right",
+    "description": "Segment: right side."
+  },
+  "hintLandscape": {
+    "message": "Auto extends only background colors in landscape. Choose the side if you know it to extend images too. Pages can’t reach under controls on the left."
+  },
+  "settingHoldSteady": {
+    "message": "Hold pages steady"
+  },
+  "hintHoldSteady": {
+    "message": "Stops pages sliding sideways. Turn off to keep double-tap zoom and swiping back from the middle of a page; pages then slide back after you scroll."
+  },
+  "settingDesktop": {
+    "message": "Also adjust desktop-layout pages"
+  },
+  "settingDebug": {
+    "message": "Show what’s extended"
+  },
+  "settingEnabled": {
+    "message": "Duofari on all websites"
+  },
+  "sectionDiagnostics": {
+    "message": "Diagnostics"
+  },
+  "copyDiagnostics": {
+    "message": "Copy",
+    "description": "Button that copies technical details for a bug report."
+  },
+  "footnote": {
+    "message": "Duofari works on the outer display, where Safari keeps its buttons in a column down the side. When iPhone Duo is open, Safari uses the full width and pages are left as they are."
+  },
+  "copied": {
+    "message": "Copied",
+    "description": "Button text after the diagnostics were copied."
+  },
+  "statusNoPage": {
+    "message": "No page open"
+  },
+  "statusUnsupported": {
+    "message": "Duofari can’t change this kind of page"
+  },
+  "statusUnsupportedDetail": {
+    "message": "It works on websites, not on Safari’s own pages, Reader or PDFs."
+  },
+  "statusNoAccess": {
+    "message": "Duofari can’t see this site yet"
+  },
+  "statusNoAccessDetail": {
+    "message": "Allow it on all websites so it can extend pages as they open."
+  },
+  "actionAllow": {
+    "message": "Allow on All Websites",
+    "description": "Button that asks Safari for permission to run on all websites."
+  },
+  "statusNotRun": {
+    "message": "Duofari hasn’t run on this page yet"
+  },
+  "statusNotRunDetail": {
+    "message": "Pages opened before Duofari was turned on need a moment, or a reload."
+  },
+  "actionApply": {
+    "message": "Apply to This Page",
+    "description": "Button that runs Duofari on the open page without reloading it."
+  },
+  "statusExtended": {
+    "message": "Extended $1",
+    "description": "$1 is a list of counts, for example “3 bars and 2 images”."
+  },
+  "statusNothingYet": {
+    "message": "On, nothing to extend yet"
+  },
+  "statusColumnLeft": {
+    "message": "Safari’s controls take $1 points on the left.",
+    "description": "$1 is a number of points."
+  },
+  "statusColumnRight": {
+    "message": "Safari’s controls take $1 points on the right.",
+    "description": "$1 is a number of points."
+  },
+  "reasonNotDuo": {
+    "message": "Not an iPhone Duo"
+  },
+  "reasonNotDuoDetail": {
+    "message": "Duofari only changes pages on iPhone Duo, beside Safari’s side controls."
+  },
+  "reasonNoColumn": {
+    "message": "Nothing to extend here"
+  },
+  "reasonNoColumnDetail": {
+    "message": "Safari is using the full width of the screen. Fold iPhone Duo to use Duofari on the outer display."
+  },
+  "reasonUnexpectedDetail": {
+    "message": "Safari’s side column isn’t showing next to this page."
+  },
+  "reasonDesktop": {
+    "message": "Desktop layout"
+  },
+  "reasonDesktopDetail": {
+    "message": "This page is laid out for a wider screen. Turn on “Also adjust desktop-layout pages” under More to include it."
+  },
+  "reasonStartSide": {
+    "message": "Controls on the wrong side"
+  },
+  "reasonStartSideDetail": {
+    "message": "Pages can only reach under controls on the side where their lines end, so Duofari leaves this one alone."
+  },
+  "reasonTransparency": {
+    "message": "Reduce Transparency is on"
+  },
+  "reasonTransparencyDetail": {
+    "message": "Safari’s side column is opaque, so nothing under it would show."
+  },
+  "reasonUnstable": {
+    "message": "Paused on this page"
+  },
+  "reasonUnstableDetail": {
+    "message": "The page kept changing size as Duofari worked, so it stepped back."
+  },
+  "reasonDisabled": {
+    "message": "Duofari is off"
+  },
+  "reasonDisabledDetail": {
+    "message": "Turn it on under More."
+  },
+  "reasonSiteOff": {
+    "message": "Off for this site"
+  },
+  "reasonSiteOffDetail": {
+    "message": "Turn it back on above."
+  },
+  "reasonExcluded": {
+    "message": "Off for this web app"
+  },
+  "reasonExcludedDetail": {
+    "message": "Turn it on above if you’d like to try it here."
+  },
+  "reasonZoomed": {
+    "message": "Paused while zoomed in"
+  },
+  "reasonZoomedDetail": {
+    "message": "Zoom back out to see the page extended."
+  },
+  "statusOff": {
+    "message": "Not active"
+  },
+  "countBarsOne": {
+    "message": "$1 bar",
+    "description": "Singular. $1 is the number of header bars or backgrounds extended."
+  },
+  "countBarsOther": {
+    "message": "$1 bars",
+    "description": "Plural. $1 is the number of header bars or backgrounds extended."
+  },
+  "countImagesOne": {
+    "message": "$1 image",
+    "description": "Singular. $1 is the number of images extended."
+  },
+  "countImagesOther": {
+    "message": "$1 images",
+    "description": "Plural. $1 is the number of images extended."
   }
 }

@@ -19,6 +19,7 @@
 (function () {
   'use strict';
   const D = (globalThis.Duofari = globalThis.Duofari || {});
+  if (D.controller) return; // already running in this page
 
   const TOL = 1.5;            // px: "touches the edge"
   const NEAR = 48;            // px: page margins an inset photo may break out of

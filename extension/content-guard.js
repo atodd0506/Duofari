@@ -18,6 +18,7 @@
 (function () {
   'use strict';
   const D = (globalThis.Duofari = globalThis.Duofari || {});
+  if (D.controller) return; // already running in this page
 
   const SETTLE_MS = 150;
 

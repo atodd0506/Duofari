@@ -17,15 +17,15 @@ Run it again after adding or removing files in extension/ or apple/:
 
     python3 scripts/gen-xcodeproj.py [--bundle-id com.example.Duofari] [--team ABCDE12345] [--build 42]
 
-The build number defaults to the number of commits on HEAD. Object identifiers
-are derived from stable names, so regenerating an unchanged tree at the same
-commit produces an identical file.
+The checked-in project uses build number 1; pass --build for uploads to App
+Store Connect, which needs a higher number each time, e.g.
+--build $(git rev-list --count HEAD). Object identifiers are derived from
+stable names, so regenerating an unchanged tree produces an identical file.
 """
 
 import argparse
 import hashlib
 import os
-import subprocess
 import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -74,7 +74,7 @@ def parse_args():
     parser.add_argument("--bundle-id", default="com.example.Duofari", help="app bundle identifier; the extension gets '.Extension' appended")
     parser.add_argument("--team", default="", help="Apple developer team ID for automatic signing")
     parser.add_argument("--version", default=None, help="marketing version (default: manifest.json version)")
-    parser.add_argument("--build", default=None, help="build number (CURRENT_PROJECT_VERSION; default: git commit count)")
+    parser.add_argument("--build", default=None, help="build number (CURRENT_PROJECT_VERSION; default: 1)")
     return parser.parse_args()
 
 
@@ -82,17 +82,6 @@ def manifest_version():
     import json
     with open(os.path.join(EXTENSION, "manifest.json")) as f:
         return json.load(f)["version"]
-
-
-def git_commit_count():
-    """The number of commits on HEAD, or "1" outside a git checkout."""
-    try:
-        result = subprocess.run(["git", "rev-list", "--count", "HEAD"], cwd=ROOT,
-                                capture_output=True, text=True, check=True, timeout=30)
-    except (OSError, subprocess.SubprocessError):
-        return "1"
-    count = result.stdout.strip()
-    return count if count.isdigit() else "1"
 
 
 def native_entries(directory):
@@ -128,7 +117,7 @@ def extension_entries():
 def main():
     args = parse_args()
     version = args.version or manifest_version()
-    build = args.build or git_commit_count()
+    build = args.build or "1"
     ext_files, ext_folders = extension_entries()
     if "manifest.json" not in ext_files:
         sys.exit("extension/manifest.json is missing")

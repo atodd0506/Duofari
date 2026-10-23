@@ -1,25 +1,61 @@
-// Duofari's settings sheet. Reads and writes storage.local; the content
-// script picks up changes immediately.
+// Duofari's settings sheet. Reads and writes storage.local (the content script
+// picks up changes immediately), shows what Duofari did on the current page,
+// and helps when it can't run there yet.
 
 (function () {
   'use strict';
   const D = globalThis.Duofari;
   const api = D.api;
+  const CONTENT_SCRIPTS = (api && api.runtime && api.runtime.getManifest)
+    ? api.runtime.getManifest().content_scripts[0].js
+    : [];
+
   let settings = { ...D.DEFAULTS };
+  let tab = null;
   let hostname = '';
+  let diagnostics = null;
+
+  const $ = (id) => document.getElementById(id);
+
+  /** A localized string, or the given English fallback. */
+  function t(key, fallback, subs) {
+    try {
+      const msg = api && api.i18n && api.i18n.getMessage(key, subs);
+      if (msg) return msg;
+    } catch {
+      // fall through
+    }
+    return subs === undefined ? fallback : String(fallback).replace(/\$1/g, subs);
+  }
+
+  function localize() {
+    for (const el of document.querySelectorAll('[data-i18n]')) {
+      el.textContent = t(el.dataset.i18n, el.textContent);
+    }
+  }
+
+  const locale = (api && api.i18n && api.i18n.getUILanguage && api.i18n.getUILanguage()) || navigator.language || 'en';
+  const plural = new Intl.PluralRules(locale);
+  const list = Intl.ListFormat ? new Intl.ListFormat(locale, { type: 'conjunction' }) : { format: (items) => items.join(', ') };
+  function count(n, key, one, other) {
+    const form = plural.select(n) === 'one' ? 'One' : 'Other';
+    return t(`${key}${form}`, form === 'One' ? one : other, String(n));
+  }
 
   const REASONS = {
-    'not-duo': ['Not an iPhone Duo', 'Duofari only adjusts pages on iPhone Duo.'],
-    'no-column': ['Nothing to extend here', 'Safari is using the full width of the screen, so there’s no side column.'],
-    'unexpected-width': ['Nothing to extend here', 'Safari’s side column isn’t showing next to this page.'],
-    'desktop-layout': ['Desktop layout', 'This page is laid out for a wider screen. Turn on “Also adjust desktop-layout pages” to include it.'],
-    'disabled': ['Duofari is off', ''],
-    'site-disabled': ['Off for this site', ''],
-    'zoomed': ['Paused while zoomed in', 'Zoom back out to see the page extended.'],
-    'starting': ['Checking this page…', ''],
+    'not-duo': ['reasonNotDuo', 'Not an iPhone Duo', 'reasonNotDuoDetail', 'Duofari only changes pages on iPhone Duo, beside Safari’s side controls.'],
+    'no-column': ['reasonNoColumn', 'Nothing to extend here', 'reasonNoColumnDetail', 'Safari is using the full width of the screen. Fold iPhone Duo to use Duofari on the outer display.'],
+    'unexpected-width': ['reasonNoColumn', 'Nothing to extend here', 'reasonUnexpectedDetail', 'Safari’s side column isn’t showing next to this page.'],
+    'desktop-layout': ['reasonDesktop', 'Desktop layout', 'reasonDesktopDetail', 'This page is laid out for a wider screen. Turn on “Also adjust desktop-layout pages” under More to include it.'],
+    'start-side': ['reasonStartSide', 'Controls on the wrong side', 'reasonStartSideDetail', 'Pages can only reach under controls on the side where their lines end, so Duofari leaves this one alone.'],
+    'reduced-transparency': ['reasonTransparency', 'Reduce Transparency is on', 'reasonTransparencyDetail', 'Safari’s side column is opaque, so nothing under it would show.'],
+    'unstable': ['reasonUnstable', 'Paused on this page', 'reasonUnstableDetail', 'The page kept changing size as Duofari worked, so it stepped back.'],
+    'disabled': ['reasonDisabled', 'Duofari is off', 'reasonDisabledDetail', 'Turn it on under More.'],
+    'site-disabled': ['reasonSiteOff', 'Off for this site', 'reasonSiteOffDetail', 'Turn it back on above.'],
+    'excluded-site': ['reasonExcluded', 'Off for this web app', 'reasonExcludedDetail', 'Turn it on above if you’d like to try it here.'],
+    'zoomed': ['reasonZoomed', 'Paused while zoomed in', 'reasonZoomedDetail', 'Zoom back out to see the page extended.'],
+    'starting': ['statusChecking', 'Checking this page…', '', ''],
   };
-
-  function $(id) { return document.getElementById(id); }
 
   function render() {
     for (const input of document.querySelectorAll('input[data-setting]')) {
@@ -32,11 +68,14 @@
     }
     const off = !settings.enabled;
     for (const input of document.querySelectorAll('input[data-setting]:not(#enabled), #site')) input.disabled = off;
+    $('allImages').disabled = off || !settings.media;
     $('breakout').disabled = off || !settings.media;
     if (hostname) {
-      $('site-row').hidden = false;
+      $('site-group').hidden = false;
       $('site-name').textContent = hostname;
-      $('site').checked = !D.siteDisabled(settings, hostname);
+      const state = D.siteState(settings, hostname);
+      $('site').checked = state === 'on';
+      $('site-note').hidden = !D.EXCLUDED_SITES.includes(hostname);
     }
   }
 
@@ -44,7 +83,7 @@
     Object.assign(settings, patch);
     render();
     await D.saveSettings(patch);
-    setTimeout(refreshStatus, 400);
+    setTimeout(refreshStatus, 450);
   }
 
   function bind() {
@@ -65,53 +104,142 @@
         save({ [group.dataset.setting]: next.dataset.value });
       });
     }
-    $('site').addEventListener('change', () => {
-      const sites = new Set(settings.disabledSites || []);
-      if ($('site').checked) sites.delete(hostname);
-      else sites.add(hostname);
-      save({ disabledSites: [...sites] });
+    $('site').addEventListener('change', () => save(D.sitePatch(settings, hostname, $('site').checked)));
+    $('copy-diagnostics').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText($('diagnostics-text').textContent);
+        $('copy-diagnostics').textContent = t('copied', 'Copied');
+      } catch {
+        // Selecting the text lets the user copy it by hand.
+        const range = document.createRange();
+        range.selectNodeContents($('diagnostics-text'));
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+      }
     });
   }
 
-  function showStatus(state, title, detail) {
+  function showStatus(state, title, detail, action) {
     $('status').dataset.state = state;
     $('status-title').textContent = title;
-    $('status-detail').textContent = detail;
+    $('status-detail').textContent = detail || '';
+    const button = $('status-action');
+    button.hidden = !action;
+    if (action) {
+      button.textContent = action.label;
+      button.onclick = action.run;
+    }
+  }
+
+  function showDiagnostics(extra) {
+    const lines = Object.entries({ ...(diagnostics || {}), ...extra }).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`);
+    const manifest = api && api.runtime && api.runtime.getManifest ? api.runtime.getManifest() : { version: '?' };
+    $('diagnostics-text').textContent = [`Duofari ${manifest.version}`, ...lines].join('\n');
+  }
+
+  async function inject() {
+    if (!tab || !api.scripting) return false;
+    try {
+      await api.scripting.executeScript({ target: { tabId: tab.id }, files: CONTENT_SCRIPTS });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function askStatus() {
+    try {
+      return await api.tabs.sendMessage(tab.id, { type: 'duofari:status' });
+    } catch {
+      return null;
+    }
   }
 
   async function refreshStatus() {
-    let status = null;
     try {
-      const [tab] = await api.tabs.query({ active: true, currentWindow: true });
-      if (tab && tab.id !== undefined) status = await api.tabs.sendMessage(tab.id, { type: 'duofari:status' });
+      [tab] = await api.tabs.query({ active: true, currentWindow: true });
     } catch {
-      status = null;
+      tab = null;
     }
-    if (!status) {
-      showStatus('warn', 'Reload this page', 'Duofari adjusts pages as they load. Pages opened before it was turned on, or before you allowed it on this site, need a reload.');
+    if (!tab || tab.id === undefined) {
+      showStatus('warn', t('statusNoPage', 'No page open'), '');
       return;
     }
+    // Without access to the site Safari hides the tab's address.
+    const url = tab.url || '';
+    if (url && !/^https?:/i.test(url)) {
+      showStatus('off', t('statusUnsupported', 'Duofari can’t change this kind of page'),
+        t('statusUnsupportedDetail', 'It works on websites, not on Safari’s own pages, Reader or PDFs.'));
+      showDiagnostics({ url });
+      return;
+    }
+
+    const status = await askStatus();
+    if (!status) {
+      if (!url) {
+        showStatus('warn', t('statusNoAccess', 'Duofari can’t see this site yet'),
+          t('statusNoAccessDetail', 'Allow it on all websites so it can extend pages as they open.'), {
+            label: t('actionAllow', 'Allow on All Websites'),
+            run: async () => {
+              let granted = false;
+              try {
+                granted = await api.permissions.request({ origins: ['*://*/*'] });
+              } catch {
+                granted = false;
+              }
+              if (granted) await inject();
+              setTimeout(refreshStatus, 600);
+            },
+          });
+      } else {
+        showStatus('warn', t('statusNotRun', 'Duofari hasn’t run on this page yet'),
+          t('statusNotRunDetail', 'Pages opened before Duofari was turned on need a moment, or a reload.'), {
+            label: t('actionApply', 'Apply to This Page'),
+            run: async () => {
+              const ok = await inject();
+              if (!ok) {
+                try { await api.tabs.reload(tab.id); } catch { /* the user can reload by hand */ }
+              }
+              setTimeout(refreshStatus, 800);
+            },
+          });
+      }
+      showDiagnostics({ url: url || '(hidden)' });
+      return;
+    }
+
     hostname = status.hostname;
+    diagnostics = status.diagnostics;
     render();
+    showDiagnostics({ reason: status.reason, counts: status.counts });
+
     if (status.active) {
       const c = status.counts || {};
-      const side = status.left && status.right ? 'both sides' : status.right ? 'on the right' : 'on the left';
-      const parts = [];
-      if (c.band) parts.push(`${c.band} ${c.band === 1 ? 'bar' : 'bars'}`);
       const images = (c.media || 0) + (c.breakout || 0);
-      if (images) parts.push(`${images} ${images === 1 ? 'image' : 'images'}`);
-      showStatus('on', parts.length ? `Extended ${parts.join(' and ')}` : 'Active, nothing to extend yet',
-        `Safari’s controls take ${Math.round(status.column)} points ${side}.`);
+      const parts = [];
+      if (c.band) parts.push(count(c.band, 'countBars', '$1 bar', '$1 bars'));
+      if (images) parts.push(count(images, 'countImages', '$1 image', '$1 images'));
+      const title = parts.length
+        ? t('statusExtended', 'Extended $1', list.format(parts))
+        : t('statusNothingYet', 'On, nothing to extend yet');
+      const points = String(Math.round(status.column));
+      showStatus('on', title, status.side === 'left'
+        ? t('statusColumnLeft', 'Safari’s controls take $1 points on the left.', points)
+        : t('statusColumnRight', 'Safari’s controls take $1 points on the right.', points));
     } else {
-      const [title, detail] = REASONS[status.reason] || ['Not active', ''];
-      showStatus('off', title, detail);
+      const [titleKey, title, detailKey, detail] = REASONS[status.reason] || ['statusOff', 'Not active', '', ''];
+      showStatus('off', t(titleKey, title), detailKey ? t(detailKey, detail) : detail);
     }
   }
 
   (async function init() {
+    localize();
     settings = await D.loadSettings();
     render();
     bind();
+    requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.add('ready')));
+    // Make sure the content scripts know the real screen size (Private Browsing hides it).
+    try { api.runtime.sendMessage({ type: 'duofari:refresh-device' }); } catch { /* optional */ }
     refreshStatus();
   })();
 })();
