@@ -1,0 +1,18 @@
+# Test output (previews, reports)
+test/output/
+
+# Node
+node_modules/
+
+# Xcode
+apple/build/
+apple/DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcuserdatad/
+
+# macOS
+.DS_Store
+
+# Packaging output
+dist/

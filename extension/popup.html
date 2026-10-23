@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Duofari</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="top">
+    <img src="images/icon-96.png" width="40" height="40" alt="">
+    <div>
+      <h1>Duofari</h1>
+      <p class="sub">Full-width pages beside Safari’s side controls</p>
+    </div>
+  </header>
+
+  <section class="status" id="status" aria-live="polite">
+    <div class="status-dot" id="status-dot"></div>
+    <div>
+      <p class="status-title" id="status-title">Checking this page…</p>
+      <p class="status-detail" id="status-detail"></p>
+    </div>
+  </section>
+
+  <ul class="group">
+    <li>
+      <label for="enabled">Duofari</label>
+      <input type="checkbox" role="switch" id="enabled" data-setting="enabled">
+    </li>
+    <li id="site-row" hidden>
+      <label for="site">On for <span id="site-name"></span></label>
+      <input type="checkbox" role="switch" id="site">
+    </li>
+  </ul>
+
+  <h2>Extend under the controls</h2>
+  <ul class="group">
+    <li>
+      <label for="bands">Header bars and backgrounds</label>
+      <input type="checkbox" role="switch" id="bands" data-setting="bands">
+    </li>
+    <li>
+      <label for="media">Full-width images and video</label>
+      <input type="checkbox" role="switch" id="media" data-setting="media">
+    </li>
+    <li>
+      <label for="breakout">Widen images inside page margins</label>
+      <input type="checkbox" role="switch" id="breakout" data-setting="breakout">
+    </li>
+    <li class="stack">
+      <span class="label" id="style-label">Image style</span>
+      <div class="segmented" role="radiogroup" aria-labelledby="style-label" data-setting="imageStyle">
+        <button type="button" role="radio" data-value="fill">Fill</button>
+        <button type="button" role="radio" data-value="mirror">Mirror edge</button>
+      </div>
+      <p class="hint">Fill widens the picture and trims a little from the top and bottom. Mirror keeps it as is and reflects its edge under the controls.</p>
+    </li>
+  </ul>
+
+  <h2>More</h2>
+  <ul class="group">
+    <li class="stack">
+      <span class="label" id="side-label">Controls in landscape</span>
+      <div class="segmented" role="radiogroup" aria-labelledby="side-label" data-setting="landscapeSide">
+        <button type="button" role="radio" data-value="auto">Auto</button>
+        <button type="button" role="radio" data-value="left">Left</button>
+        <button type="button" role="radio" data-value="right">Right</button>
+      </div>
+    </li>
+    <li>
+      <label for="desktopPages">Also adjust desktop-layout pages</label>
+      <input type="checkbox" role="switch" id="desktopPages" data-setting="desktopPages">
+    </li>
+    <li>
+      <label for="debug">Show what’s extended</label>
+      <input type="checkbox" role="switch" id="debug" data-setting="debug">
+    </li>
+  </ul>
+
+  <p class="footnote">Duofari works on the outer display, where Safari keeps its buttons in a column down the side. When iPhone Duo is open, Safari uses the full width, and pages are left as they are.</p>
+
+  <script src="shared-settings.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

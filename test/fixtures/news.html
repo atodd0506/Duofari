@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>News front page</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.4 system-ui, sans-serif; background: #f4f4f4; }
+  .wrapper { overflow-x: hidden; }
+  .masthead { position: fixed; top: 0; left: 0; width: 100%; height: 64px; z-index: 20; background: #b80000; color: #fff;
+    display: flex; align-items: center; padding: 0 16px; transition: height .2s; }
+  .masthead.compact { height: 44px; }
+  .masthead .search { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); background: none; border: 1px solid #fff; color: #fff; border-radius: 6px; padding: 4px 8px; }
+  .spacer { height: 64px; }
+  nav.sections { display: flex; gap: 16px; overflow-x: auto; white-space: nowrap; padding: 10px 16px; background: #fff; border-bottom: 1px solid #ddd; }
+  nav.sections a { color: #222; text-decoration: none; }
+  .lead { position: relative; }
+  .lead .img-box { position: relative; padding-top: 56.25%; background: #ccc; }
+  .lead .img-box img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .lead h2 { margin: 0; padding: 12px 16px; background: #fff; font-size: 24px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px 16px; }
+  .grid article { background: #fff; }
+  .grid img { display: block; width: 100%; aspect-ratio: 4/3; object-fit: cover; }
+  .grid h3 { font-size: 15px; margin: 8px; }
+  .carousel { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 8px; padding: 12px 16px; background: #222; }
+  .carousel > div { flex: 0 0 80%; height: 160px; scroll-snap-align: start; border-radius: 8px; }
+  .promo { background-image: linear-gradient(120deg, #ffcc00, #ff6600); padding: 24px 16px; color: #111; }
+  .promo a.cta { display: inline-block; margin-top: 8px; padding: 8px 14px; background: #111; color: #fff; border-radius: 20px; text-decoration: none; }
+  .cookie { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: #111; color: #fff; padding: 12px 16px; display: flex; gap: 8px; align-items: center; }
+  .cookie button { margin-left: auto; padding: 6px 12px; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <header class="masthead" id="masthead" data-expect="bleed">
+    <strong data-expect="inset">THE DAILY FOLD</strong>
+    <button class="search" data-expect="inset">Search</button>
+  </header>
+  <div class="spacer"></div>
+  <nav class="sections" data-expect="bleed">
+    <a href="#">Home</a><a href="#">World</a><a href="#">Business</a><a href="#">Tech</a><a href="#">Science</a><a href="#">Culture</a><a href="#">Sport</a>
+  </nav>
+  <section class="lead">
+    <div class="img-box" data-expect="bleed">
+      <img data-expect="bleed-or-parent" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'%3E%3Crect width='640' height='360' fill='%23446'/%3E%3Ccircle cx='320' cy='180' r='120' fill='%23f84'/%3E%3C/svg%3E">
+    </div>
+    <h2 data-expect="bleed"><span data-expect="inset">Folding phones change how we read the news</span></h2>
+  </section>
+  <div class="grid" data-expect="none">
+    <article data-expect="inset"><img data-expect="inset" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3Crect width='4' height='3' fill='%2369c'/%3E%3C/svg%3E"><h3>Markets steady as hinge stocks rise</h3></article>
+    <article data-expect="inset"><img data-expect="inset" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3Crect width='4' height='3' fill='%23c96'/%3E%3C/svg%3E"><h3>Opinion: two screens are better than one</h3></article>
+  </div>
+  <div class="carousel" data-expect="bleed">
+    <div style="background:#e55"></div><div style="background:#5a5"></div><div style="background:#55e"></div>
+  </div>
+  <section class="promo" data-expect="bleed">
+    <strong data-expect="inset">Subscribe for the full story</strong><br>
+    <a class="cta" href="#" data-expect="inset">Start free trial</a>
+  </section>
+  <div style="height:1200px;background:#fff" data-expect="bleed"></div>
+</div>
+<div class="cookie" data-expect="bleed"><span data-expect="inset">We use cookies.</span><button data-expect="inset">OK</button></div>
+<script>
+  addEventListener('scroll', () => document.getElementById('masthead').classList.toggle('compact', scrollY > 40), { passive: true });
+</script>
+</body>
+</html>

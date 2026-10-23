@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>Blog article</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { background: #fbf7ef; }
+  body { margin: 0; font: 18px/1.6 Georgia, serif; color: #2b2b2b; }
+  .site-header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between;
+    height: 56px; padding: 0 16px; background: #1f6f43; color: #fff; border-bottom: 1px solid #0d3b22; }
+  .site-header .logo { font: 700 20px/1 system-ui; }
+  .site-header .menu { position: absolute; right: 12px; top: 10px; width: 36px; height: 36px; border: 0; border-radius: 8px; background: rgba(255,255,255,.15); color: #fff; }
+  main { max-width: 680px; margin: 0 auto; padding: 0 16px; }
+  h1 { font-size: 32px; line-height: 1.2; margin: 28px 0 12px; }
+  .lede img, figure img { display: block; width: 100%; height: auto; }
+  figure { margin: 24px 0; }
+  figcaption { font-size: 14px; color: #777; margin-top: 6px; }
+  .full { width: 100vw; margin-left: calc(50% - 50vw); }
+  blockquote { margin: 24px 0; padding: 12px 16px; background: #efe6d2; border-left: 4px solid #1f6f43; }
+  pre { overflow-x: auto; background: #222; color: #eee; padding: 12px; border-radius: 8px; font-size: 14px; }
+  .card { background: #fff; border-radius: 12px; padding: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+  .card img { display: block; width: 100%; height: auto; border-radius: 8px; }
+  .inline-emoji { width: 20px; height: 20px; vertical-align: middle; }
+  footer { margin-top: 40px; padding: 24px 16px; background: #222; color: #ddd; font: 14px system-ui; }
+</style>
+</head>
+<body>
+  <header class="site-header" data-expect="bleed">
+    <span class="logo" data-expect="inset">Field Notes</span>
+    <button class="menu" aria-label="Menu" data-expect="inset">☰</button>
+  </header>
+  <main>
+    <h1 data-expect="inset">What the fold taught us about reading on phones</h1>
+    <p data-expect="inset">By A. Writer · <img class="inline-emoji" data-expect="inset" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='9' fill='%23fc0'/%3E%3C/svg%3E"> 6 min read</p>
+    <div class="lede">
+      <img id="lede-img" data-expect="breakout" alt="Mountains" width="1200" height="800" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 400'%3E%3Crect width='600' height='400' fill='%2387b6d9'/%3E%3Cpath d='M0 400 L180 140 L300 300 L420 170 L600 400Z' fill='%23365f3c'/%3E%3Ccircle cx='470' cy='90' r='40' fill='%23ffd65a'/%3E%3C/svg%3E">
+    </div>
+    <p data-expect="inset">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer posuere erat a ante venenatis dapibus posuere velit aliquet. Cras mattis consectetur purus sit amet fermentum. Maecenas faucibus mollis interdum.</p>
+    <figure>
+      <img data-expect="breakout" alt="Chart" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 300'%3E%3Crect width='600' height='300' fill='%23fff'/%3E%3Crect x='40' y='200' width='60' height='80' fill='%23e66'/%3E%3Crect x='140' y='120' width='60' height='160' fill='%236a6'/%3E%3Crect x='240' y='60' width='60' height='220' fill='%2366e'/%3E%3C/svg%3E">
+      <figcaption data-expect="inset">Figure 1. A caption that must never slide under Safari’s buttons.</figcaption>
+    </figure>
+    <blockquote data-expect="inset">A pull quote with a tinted background that sits inside the article column.</blockquote>
+    <div class="full" data-expect="bleed" style="background:#1f6f43;color:#fff;padding:20px 16px">
+      <p data-expect="inset" style="margin:0">A 100vw full-bleed band from the site’s own CSS.</p>
+    </div>
+    <pre data-expect="inset"><code>const fold = await device.posture();
+console.log(fold.type);</code></pre>
+    <div class="card" data-expect="inset">
+      <img data-expect="inset" alt="Card image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 300'%3E%3Crect width='600' height='300' fill='%23c9a'/%3E%3C/svg%3E">
+      <p data-expect="inset">A card: its image must stay inside the card.</p>
+    </div>
+    <p data-expect="inset">Etiam porta sem malesuada magna mollis euismod. Donec ullamcorper nulla non metus auctor fringilla. Vestibulum id ligula porta felis euismod semper.</p>
+  </main>
+  <footer data-expect="bleed"><p data-expect="inset">© Field Notes. All rights reserved.</p></footer>
+</body>
+</html>

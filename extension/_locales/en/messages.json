@@ -1,0 +1,10 @@
+{
+  "extensionName": {
+    "message": "Duofari",
+    "description": "The name of the extension."
+  },
+  "extensionDescription": {
+    "message": "On iPhone Duo, header bars and images continue under Safari’s side controls, while text stays clear of them.",
+    "description": "The description of the extension, shown in Safari's extension settings."
+  }
+}

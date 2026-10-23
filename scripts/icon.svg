@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Duofari icon: a folded iPhone Duo page whose header art runs under
+       Safari's side column while the text lines stop short of it. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#0040A8"/>
+    </linearGradient>
+    <linearGradient id="art" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF9F0A"/>
+      <stop offset="0.55" stop-color="#FF375F"/>
+      <stop offset="1" stop-color="#BF5AF2"/>
+    </linearGradient>
+    <clipPath id="screen">
+      <rect x="232" y="132" width="560" height="760" rx="84"/>
+    </clipPath>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <g clip-path="url(#screen)">
+    <rect x="232" y="132" width="560" height="760" fill="#FFFFFF"/>
+    <!-- hero art: full width, including under the column -->
+    <rect x="232" y="132" width="560" height="300" fill="url(#art)"/>
+    <circle cx="384" cy="300" r="70" fill="#FFFFFF" fill-opacity="0.35"/>
+    <path d="M232 432 L420 300 L560 400 L660 330 L792 432 Z" fill="#FFFFFF" fill-opacity="0.28"/>
+    <!-- text lines: stop at the column -->
+    <rect x="280" y="482" width="300" height="34" rx="17" fill="#1C1C1E"/>
+    <rect x="280" y="552" width="380" height="22" rx="11" fill="#C7C7CC"/>
+    <rect x="280" y="598" width="350" height="22" rx="11" fill="#C7C7CC"/>
+    <rect x="280" y="644" width="372" height="22" rx="11" fill="#C7C7CC"/>
+    <rect x="280" y="690" width="300" height="22" rx="11" fill="#C7C7CC"/>
+    <rect x="280" y="760" width="96" height="96" rx="24" fill="#34C759"/>
+    <rect x="400" y="782" width="220" height="22" rx="11" fill="#C7C7CC"/>
+    <rect x="400" y="818" width="160" height="22" rx="11" fill="#E5E5EA"/>
+  </g>
+  <!-- Safari's side column: glass pill and buttons -->
+  <rect x="694" y="168" width="72" height="196" rx="36" fill="#FFFFFF" fill-opacity="0.42" stroke="#FFFFFF" stroke-opacity="0.7" stroke-width="4"/>
+  <circle cx="730" cy="214" r="22" fill="#1C1C1E"/>
+  <rect x="708" y="262" width="44" height="14" rx="7" fill="#FFFFFF"/>
+  <circle cx="730" cy="472" r="34" fill="#FFFFFF" fill-opacity="0.9" stroke="#D1D1D6" stroke-width="3"/>
+  <path d="M738 456 L722 472 L738 488" fill="none" stroke="#1C1C1E" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="730" cy="560" r="34" fill="#FFFFFF" fill-opacity="0.9" stroke="#D1D1D6" stroke-width="3"/>
+</svg>

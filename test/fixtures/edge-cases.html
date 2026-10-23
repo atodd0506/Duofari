@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edge cases</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.4 system-ui, sans-serif; display: flex; flex-direction: column; min-height: 100vh; }
+  section { margin: 0; }
+  .label { font: 12px monospace; color: #666; padding: 4px 16px; }
+  /* 1. width:100% + border-box with text and an abspos child anchored right */
+  .w100 { width: 100%; padding: 16px; background: #0b5; color: #fff; position: relative; }
+  .w100 .pin { position: absolute; right: 16px; top: 12px; }
+  /* 2. explicit max-width: 100% on a band */
+  .maxw { max-width: 100%; background: #369; color: #fff; padding: 12px 16px; }
+  /* 3. grid full-bleed layout */
+  .gridpage { display: grid; grid-template-columns: 16px 1fr 16px; }
+  .gridpage > * { grid-column: 2; }
+  .gridpage > .bleed { grid-column: 1 / -1; }
+  /* 4. transformed ancestor */
+  .xform { transform: translateZ(0); }
+  /* 5. background-image hero with overlaid text */
+  .bghero { height: 220px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 220'%3E%3Crect width='400' height='220' fill='%23234'/%3E%3Ccircle cx='300' cy='60' r='40' fill='%23fd5'/%3E%3C/svg%3E") center / cover no-repeat;
+    color: #fff; display: flex; align-items: flex-end; padding: 16px; }
+  /* 6. clip wrapper around an image */
+  .clipwrap { overflow: hidden; border-radius: 0; }
+  .clipwrap img { display: block; width: 100%; height: 180px; object-fit: cover; }
+  /* 8. full-screen fixed modal (hidden until opened) */
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; z-index: 50; }
+  .modal.open { display: block; }
+  /* 9. background-clip:text band */
+  .cliptext { background: linear-gradient(90deg, #f0f, #0ff); -webkit-background-clip: text; background-clip: text; color: transparent; font: 800 40px system-ui; padding: 8px 16px; }
+  /* 10. image with object-fit contain */
+  .contain { display: block; width: 100%; height: 160px; object-fit: contain; background: #eee; }
+  /* 11. border-image band */
+  .bimg { border: 6px solid; border-image: linear-gradient(90deg, red, blue) 1; padding: 8px 16px; }
+  /* 12. inline-block full-width element */
+  .ib { display: inline-block; width: 100%; background: #fc6; padding: 8px 16px; vertical-align: top; }
+  /* 13. table band */
+  table.band { width: 100%; border-collapse: collapse; background: #ddf; }
+  table.band td { padding: 8px 16px; }
+  /* 14. same-colour band as the page: nothing to do */
+  .samebg { background: #fff; padding: 12px 16px; }
+  /* 15. half-width image floated right touching the edge */
+  .floatimg { float: right; width: 45%; height: 120px; margin: 0 0 8px 8px; object-fit: cover; }
+</style>
+</head>
+<body>
+  <section class="w100" data-expect="bleed"><span data-expect="inset">1. width:100% + border-box band</span><button class="pin" data-expect="inset">Pin</button></section>
+  <section class="maxw" data-expect="bleed"><span data-expect="inset">2. max-width:100% band</span></section>
+  <div class="gridpage">
+    <p data-expect="inset">3. Grid page text in the middle column.</p>
+    <div class="bleed" data-expect="bleed" style="background:#a3c;color:#fff;padding:12px 16px"><span data-expect="inset">3b. grid-column 1/-1 band</span></div>
+  </div>
+  <div class="xform"><div data-expect="bleed" style="background:#963;color:#fff;padding:12px 16px"><span data-expect="inset">4. band inside a transformed ancestor</span></div></div>
+  <section class="bghero" data-expect="bleed"><h2 data-expect="inset" style="margin:0">5. Background-image hero with a headline</h2></section>
+  <div class="clipwrap" data-expect="clip-or-bleed"><img data-expect="bleed" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 180'%3E%3Crect width='400' height='180' fill='%23c44'/%3E%3Crect x='300' width='100' height='180' fill='%23fff' fill-opacity='.3'/%3E%3C/svg%3E"></div>
+  <video data-expect="inset" controls width="100%" style="display:block;width:100%;height:180px;background:#000"></video>
+  <iframe data-expect="inset" title="map" style="display:block;width:100%;height:120px;border:0;background:#cde" srcdoc="<p>Embedded map</p>"></iframe>
+  <div class="cliptext" data-expect="inset">9. Gradient text</div>
+  <img class="contain" data-expect="inset" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%2393c'/%3E%3C/svg%3E">
+  <div class="bimg" data-expect="inset">11. Border-image band</div>
+  <div><div class="ib" data-expect="bleed"><span data-expect="inset">12. inline-block full width</span></div></div>
+  <table class="band" data-expect="bleed-or-inset"><tr><td data-expect="inset">13. Table band</td><td data-expect="inset">cell</td></tr></table>
+  <div class="samebg" data-expect="none">14. Same colour as the page</div>
+  <div style="padding:0 0 0 16px;overflow:auto"><img class="floatimg" data-expect="inset" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3Crect width='4' height='3' fill='%23396'/%3E%3C/svg%3E"><p data-expect="inset">15. Text wrapping around a half-width image floated right against the edge.</p></div>
+  <duofari-test-card data-expect="none"></duofari-test-card>
+  <div class="modal" id="modal" data-expect="none"></div>
+  <footer data-expect="bleed" style="margin-top:auto;background:#333;color:#eee;padding:16px"><span data-expect="inset">Flex-column body footer</span></footer>
+  <script>
+    customElements.define('duofari-test-card', class extends HTMLElement {
+      constructor() {
+        super();
+        this.attachShadow({ mode: 'open' }).innerHTML = `
+          <style>:host{display:block} .band{background:#f60;color:#fff;padding:12px 16px}</style>
+          <div class="band" part="band" data-expect="bleed"><span data-expect="inset">16. Band inside an open shadow root</span></div>`;
+      }
+    });
+  </script>
+</body>
+</html>

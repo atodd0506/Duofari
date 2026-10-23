@@ -1,0 +1,493 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		2773CE8883F4E7885EBA6A1E /* images in Resources */ = {isa = PBXBuildFile; fileRef = DE69839CF624E3C91BBEBEA7 /* images */; };
+		325FF1B0B6AB63211DDE43EC /* content-classify.js in Resources */ = {isa = PBXBuildFile; fileRef = 1F740BC47E584AD0A26027F9 /* content-classify.js */; };
+		4887AC42F158AEFAB7C42AFE /* content-guard.js in Resources */ = {isa = PBXBuildFile; fileRef = 035AFD4F5CF810B7A3A0CF78 /* content-guard.js */; };
+		4C3F1B7BDF0C122051EA55BE /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = DE568C77BD10A9BBA7FBCF0F /* manifest.json */; };
+		54434BFB8F1E00C81FBF30FE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 67609D462586611867394194 /* Assets.xcassets */; };
+		652C3E3B7F63CA89E063E286 /* Duofari Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B408B9B21E282F43573B093A /* Duofari Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		662C0CE37BF6F5194A2BD739 /* popup.html in Resources */ = {isa = PBXBuildFile; fileRef = 403EAF72828473DE627FEE28 /* popup.html */; };
+		6849987D1C29AF470002DEE1 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8257122C88617464EC90B51C /* SafariWebExtensionHandler.swift */; };
+		7B74946A4C59EBFFA1856A62 /* content-bleed.js in Resources */ = {isa = PBXBuildFile; fileRef = 8AE5EFC833472AB72C9F78C5 /* content-bleed.js */; };
+		86D288303F313193247B9297 /* DuofariApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F665EE487A325E1310E58E /* DuofariApp.swift */; };
+		8E16CCEB13214C4FDB03BC39 /* popup.js in Resources */ = {isa = PBXBuildFile; fileRef = FB9A15E49CC3B2A21C9FF62B /* popup.js */; };
+		A437CD0828C659D1CA1DCDCC /* _locales in Resources */ = {isa = PBXBuildFile; fileRef = 4C5ADBC43C711F9EAD963A2C /* _locales */; };
+		A7C0A67FC8A0795867E1E2BA /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E02D3EBBE76C69A192ECEB81 /* ContentView.swift */; };
+		B17437DA98ECD6C8B209BC31 /* shared-settings.js in Resources */ = {isa = PBXBuildFile; fileRef = 7415651540FDC74D05EF694D /* shared-settings.js */; };
+		C6B57A3C668FDDFFB5BB1CF5 /* popup.css in Resources */ = {isa = PBXBuildFile; fileRef = DE397C9F7E3471535FDC6BAA /* popup.css */; };
+		CB4A074F25DF74D4DC368EB1 /* content-main.js in Resources */ = {isa = PBXBuildFile; fileRef = 9B7C3D25E0FE9454736D5A0E /* content-main.js */; };
+		DE84D37DB78E9B42FB6CA742 /* content-geometry.js in Resources */ = {isa = PBXBuildFile; fileRef = 76B298013836A1F0743A0E16 /* content-geometry.js */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		39E7F678E562EE799FD46988 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A4FD400015718FB00FE26213 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7E4197F08C8B9DD347B2D231;
+			remoteInfo = "Duofari Extension";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		122F6E7752B8DA4CBF4569F2 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			name = "Embed Foundation Extensions";
+			buildActionMask = 2147483647;
+			files = (
+				652C3E3B7F63CA89E063E286 /* Duofari Extension.appex in Embed Foundation Extensions */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		035AFD4F5CF810B7A3A0CF78 /* content-guard.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "content-guard.js"; sourceTree = "<group>"; };
+		1F740BC47E584AD0A26027F9 /* content-classify.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "content-classify.js"; sourceTree = "<group>"; };
+		403EAF72828473DE627FEE28 /* popup.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = popup.html; sourceTree = "<group>"; };
+		4C5ADBC43C711F9EAD963A2C /* _locales */ = {isa = PBXFileReference; lastKnownFileType = folder; path = _locales; sourceTree = "<group>"; };
+		626B62F6FC3E482CC6FA40E8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		67609D462586611867394194 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		6C1A72199B78320B07C881EF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		7415651540FDC74D05EF694D /* shared-settings.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "shared-settings.js"; sourceTree = "<group>"; };
+		76B298013836A1F0743A0E16 /* content-geometry.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "content-geometry.js"; sourceTree = "<group>"; };
+		8257122C88617464EC90B51C /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		87F665EE487A325E1310E58E /* DuofariApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuofariApp.swift; sourceTree = "<group>"; };
+		8AE5EFC833472AB72C9F78C5 /* content-bleed.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "content-bleed.js"; sourceTree = "<group>"; };
+		96DE7FA3FB469DE354DD145C /* Duofari.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Duofari.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9B7C3D25E0FE9454736D5A0E /* content-main.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "content-main.js"; sourceTree = "<group>"; };
+		B408B9B21E282F43573B093A /* Duofari Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Duofari Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		DE397C9F7E3471535FDC6BAA /* popup.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = popup.css; sourceTree = "<group>"; };
+		DE568C77BD10A9BBA7FBCF0F /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
+		DE69839CF624E3C91BBEBEA7 /* images */ = {isa = PBXFileReference; lastKnownFileType = folder; path = images; sourceTree = "<group>"; };
+		E02D3EBBE76C69A192ECEB81 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		FB9A15E49CC3B2A21C9FF62B /* popup.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = popup.js; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1C716C7EAE2548E82EEC9774 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A31F826FC4196562DA8DEB4A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		6D7B62C3ACA34F2DF0EFBB82 = {
+			isa = PBXGroup;
+			children = (
+				E86D0F8ADA68E6E7E1F5F5D8 /* Duofari */,
+				E4783AA55B76D38521BCCEE2 /* Duofari Extension */,
+				97FDA21A4B7AC9B19A98EAE4 /* Resources (extension) */,
+				C70FEC3E86DBC7987B7FC822 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		97FDA21A4B7AC9B19A98EAE4 /* Resources (extension) */ = {
+			isa = PBXGroup;
+			children = (
+				8AE5EFC833472AB72C9F78C5 /* content-bleed.js */,
+				1F740BC47E584AD0A26027F9 /* content-classify.js */,
+				76B298013836A1F0743A0E16 /* content-geometry.js */,
+				035AFD4F5CF810B7A3A0CF78 /* content-guard.js */,
+				9B7C3D25E0FE9454736D5A0E /* content-main.js */,
+				DE568C77BD10A9BBA7FBCF0F /* manifest.json */,
+				DE397C9F7E3471535FDC6BAA /* popup.css */,
+				403EAF72828473DE627FEE28 /* popup.html */,
+				FB9A15E49CC3B2A21C9FF62B /* popup.js */,
+				7415651540FDC74D05EF694D /* shared-settings.js */,
+				4C5ADBC43C711F9EAD963A2C /* _locales */,
+				DE69839CF624E3C91BBEBEA7 /* images */,
+			);
+			name = "Resources (extension)";
+			path = ../extension;
+			sourceTree = "<group>";
+		};
+		C70FEC3E86DBC7987B7FC822 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				96DE7FA3FB469DE354DD145C /* Duofari.app */,
+				B408B9B21E282F43573B093A /* Duofari Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		E4783AA55B76D38521BCCEE2 /* Duofari Extension */ = {
+			isa = PBXGroup;
+			children = (
+				8257122C88617464EC90B51C /* SafariWebExtensionHandler.swift */,
+				6C1A72199B78320B07C881EF /* Info.plist */,
+			);
+			path = "Duofari Extension";
+			sourceTree = "<group>";
+		};
+		E86D0F8ADA68E6E7E1F5F5D8 /* Duofari */ = {
+			isa = PBXGroup;
+			children = (
+				87F665EE487A325E1310E58E /* DuofariApp.swift */,
+				E02D3EBBE76C69A192ECEB81 /* ContentView.swift */,
+				67609D462586611867394194 /* Assets.xcassets */,
+				626B62F6FC3E482CC6FA40E8 /* Info.plist */,
+			);
+			path = Duofari;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		7E4197F08C8B9DD347B2D231 /* Duofari Extension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B08F5D59A0D706954C5B08DA /* Build configuration list for PBXNativeTarget "Duofari Extension" */;
+			buildPhases = (
+				F34D4B646F5D3FAC83027F83 /* Sources */,
+				1C716C7EAE2548E82EEC9774 /* Frameworks */,
+				3F341A0647F11F842A9B1DCB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Duofari Extension";
+			productName = "Duofari Extension";
+			productReference = B408B9B21E282F43573B093A /* Duofari Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		FF1B95676B21ABD79B67B53F /* Duofari */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 00C2F57FB78D4D7B35EFDFCD /* Build configuration list for PBXNativeTarget "Duofari" */;
+			buildPhases = (
+				6BE051D05D83D063983A2E6E /* Sources */,
+				A31F826FC4196562DA8DEB4A /* Frameworks */,
+				9F9FA0C6343E3F6616D1B6E9 /* Resources */,
+				122F6E7752B8DA4CBF4569F2 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6230E1DB811AEFA80CA039B2 /* PBXTargetDependency */,
+			);
+			name = Duofari;
+			productName = Duofari;
+			productReference = 96DE7FA3FB469DE354DD145C /* Duofari.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A4FD400015718FB00FE26213 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					FF1B95676B21ABD79B67B53F = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					7E4197F08C8B9DD347B2D231 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+				};
+			};
+			buildConfigurationList = CE98DF2E8A53B9FAFA26F133 /* Build configuration list for PBXProject "Duofari" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 6D7B62C3ACA34F2DF0EFBB82;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = C70FEC3E86DBC7987B7FC822 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				FF1B95676B21ABD79B67B53F /* Duofari */,
+				7E4197F08C8B9DD347B2D231 /* Duofari Extension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		3F341A0647F11F842A9B1DCB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7B74946A4C59EBFFA1856A62 /* content-bleed.js in Resources */,
+				325FF1B0B6AB63211DDE43EC /* content-classify.js in Resources */,
+				DE84D37DB78E9B42FB6CA742 /* content-geometry.js in Resources */,
+				4887AC42F158AEFAB7C42AFE /* content-guard.js in Resources */,
+				CB4A074F25DF74D4DC368EB1 /* content-main.js in Resources */,
+				4C3F1B7BDF0C122051EA55BE /* manifest.json in Resources */,
+				C6B57A3C668FDDFFB5BB1CF5 /* popup.css in Resources */,
+				662C0CE37BF6F5194A2BD739 /* popup.html in Resources */,
+				8E16CCEB13214C4FDB03BC39 /* popup.js in Resources */,
+				B17437DA98ECD6C8B209BC31 /* shared-settings.js in Resources */,
+				A437CD0828C659D1CA1DCDCC /* _locales in Resources */,
+				2773CE8883F4E7885EBA6A1E /* images in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9F9FA0C6343E3F6616D1B6E9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				54434BFB8F1E00C81FBF30FE /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		6BE051D05D83D063983A2E6E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				86D288303F313193247B9297 /* DuofariApp.swift in Sources */,
+				A7C0A67FC8A0795867E1E2BA /* ContentView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F34D4B646F5D3FAC83027F83 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6849987D1C29AF470002DEE1 /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		6230E1DB811AEFA80CA039B2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7E4197F08C8B9DD347B2D231 /* Duofari Extension */;
+			targetProxy = 39E7F678E562EE799FD46988 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		037B2A696A4DE7F82AF38A25 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Duofari/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Duofari;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.Duofari;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		1AFEEB453AA2A723DDCE62C8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		4F792A05A7CDA7265EEFFB02 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		76E45B34201A3AB41AEA45FA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Duofari Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Duofari;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.Duofari.Extension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B09E33CC33487E554014F675 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Duofari/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Duofari;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.Duofari;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		DDD75187A4F736CA9D99AAD9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Duofari Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Duofari;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.Duofari.Extension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		00C2F57FB78D4D7B35EFDFCD /* Build configuration list for PBXNativeTarget "Duofari" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				037B2A696A4DE7F82AF38A25 /* Debug */,
+				B09E33CC33487E554014F675 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B08F5D59A0D706954C5B08DA /* Build configuration list for PBXNativeTarget "Duofari Extension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				76E45B34201A3AB41AEA45FA /* Debug */,
+				DDD75187A4F736CA9D99AAD9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CE98DF2E8A53B9FAFA26F133 /* Build configuration list for PBXProject "Duofari" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1AFEEB453AA2A723DDCE62C8 /* Debug */,
+				4F792A05A7CDA7265EEFFB02 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = A4FD400015718FB00FE26213 /* Project object */;
+}
