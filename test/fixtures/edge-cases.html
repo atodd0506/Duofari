@@ -21,7 +21,7 @@
   /* 4. transformed ancestor */
   .xform { transform: translateZ(0); }
   /* 5. background-image hero with overlaid text */
-  .bghero { height: 220px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 220'%3E%3Crect width='400' height='220' fill='%23234'/%3E%3Ccircle cx='300' cy='60' r='40' fill='%23fd5'/%3E%3C/svg%3E") center / cover no-repeat;
+  .bghero { height: 220px; background: #234 url("img/banner.jpg") center / cover no-repeat;
     color: #fff; display: flex; align-items: flex-end; padding: 16px; }
   /* 6. clip wrapper around an image */
   .clipwrap { overflow: hidden; border-radius: 0; }
@@ -55,7 +55,7 @@
   </div>
   <div class="xform"><div data-expect="bleed" style="background:#963;color:#fff;padding:12px 16px"><span data-expect="inset">4. band inside a transformed ancestor</span></div></div>
   <section class="bghero" data-expect="bleed"><h2 data-expect="inset" style="margin:0">5. Background-image hero with a headline</h2></section>
-  <div class="clipwrap" data-expect="clip-or-bleed"><img data-expect="bleed" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 180'%3E%3Crect width='400' height='180' fill='%23c44'/%3E%3Crect x='300' width='100' height='180' fill='%23fff' fill-opacity='.3'/%3E%3C/svg%3E"></div>
+  <div class="clipwrap" data-expect="bleed"><img data-expect="bleed" data-probe-column="image" alt="" src="img/banner.jpg"></div>
   <video data-expect="inset" controls width="100%" style="display:block;width:100%;height:180px;background:#000"></video>
   <iframe data-expect="inset" title="map" style="display:block;width:100%;height:120px;border:0;background:#cde" srcdoc="<p>Embedded map</p>"></iframe>
   <div class="cliptext" data-expect="inset">9. Gradient text</div>

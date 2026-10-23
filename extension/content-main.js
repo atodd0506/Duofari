@@ -11,6 +11,9 @@
   const MIN_INTERVAL = 300;
   const RESIZE_SETTLE = 250;
   const SCAN_BUDGET = 6000;
+  const SLICE_MS = 12;          // keep each scan short; the rest continues in the next one
+  const FLIP_LIMIT = 4;         // on/off changes within FLIP_WINDOW before Duofari stands down
+  const FLIP_WINDOW = 10000;
 
   const state = {
     settings: { ...D.DEFAULTS },
@@ -18,13 +21,19 @@
     active: false,
     reason: 'starting',
     allowance: 0,
+    vwIncludesColumn: false,
+    vwExcess: 0,
     meta: null,
-    spacer: null,
+    metaRewrites: 0,
     debug: null,
     timer: 0,
     lastRun: 0,
     lastScrollY: 0,
     stats: null,
+    flips: [],
+    unstable: false,
+    observedRoots: new WeakSet(),
+    mutationRates: new WeakMap(),
   };
 
   // ---------------------------------------------------------------------------
@@ -38,6 +47,7 @@
 
   function runNow() {
     clearTimeout(state.timer);
+    state.timer = 0;
     run();
   }
 
@@ -48,11 +58,22 @@
     const s = state.settings;
     const geo = D.measureColumn(s);
     if (geo.zoomed) return; // keep things as they are until the user zooms back out
+    if (state.active && D.guard.drifted()) {
+      // Rects would be measured while the page is shifted sideways; wait for
+      // the guard to put it back.
+      schedule(200);
+      return;
+    }
 
-    const siteOff = D.siteDisabled(s, location.hostname);
-    const want = s.enabled && !siteOff && geo.width > 0;
-    state.reason = !s.enabled ? 'disabled' : siteOff ? 'site-disabled' : geo.reason;
+    const site = D.siteState(s, location.hostname);
+    let want = s.enabled && site === 'on' && geo.width > 0 && !state.unstable;
+    state.reason = !s.enabled ? 'disabled' : site === 'off' ? 'site-disabled' : site === 'excluded' ? 'excluded-site'
+      : state.unstable ? 'unstable' : geo.reason;
 
+    if (want !== state.active && noteFlip()) {
+      want = false;
+      state.reason = 'unstable';
+    }
     if (!want) {
       if (state.active) deactivate();
       state.geometry = geo;
@@ -61,35 +82,52 @@
     if (state.active && !D.sameGeometry(state.geometry, geo)) {
       // Rotation, fold or a settings change: start from the page's own layout.
       resetChanges();
-      state.allowance = D.guard.measureAllowance();
+      state.active = false;
     }
-    if (!state.active) {
-      state.allowance = D.guard.measureAllowance();
-      state.active = true;
-    }
+    if (!state.active) activate();
     state.geometry = geo;
 
+    D.pruneDetached();
+    const touchRoots = new Set();
+    const scrollers = new Set();
     const ctx = {
       layoutWidth: geo.layoutWidth,
       viewportHeight: globalThis.innerHeight,
       C: geo.width,
       left: geo.left,
       right: geo.right,
+      media: geo.media,
       settings: s,
       budget: SCAN_BUDGET,
-      needsSpacer: false,
+      deadline: performance.now() + SLICE_MS,
+      touchRoots,
+      scrollers,
+      observeRoot,
     };
     const stats = D.scan(ctx);
     state.stats = stats;
     state.lastScrollY = globalThis.scrollY;
+    if (stats.truncated) schedule(60);
 
-    if (D.records.size) fixViewportMeta();
-    setSpacer(ctx.needsSpacer || hasMirror() ? geo : null);
-    if (stats.growAbove) globalThis.scrollBy(0, stats.growAbove);
-    D.guard.enable({ baseScale: geo.scale, allowance: state.allowance });
+    D.guard.enable({
+      baseScale: geo.scale,
+      allowance: state.allowance,
+      lock: s.holdSteady,
+      roots: [...touchRoots],
+      scrollers: [...scrollers],
+    });
     if (s.debug) drawDebug(geo, stats);
     else removeDebug();
     observer.takeRecords(); // our own writes
+  }
+
+  function activate() {
+    // Measure the page's own horizontal overflow before changing anything.
+    state.allowance = D.guard.measureAllowance();
+    state.vwIncludesColumn = probeViewportUnits();
+    if (state.vwIncludesColumn && state.allowance <= state.vwExcess + 1) state.allowance = 0;
+    fixViewportMeta();
+    state.active = true;
   }
 
   function deactivate() {
@@ -104,55 +142,79 @@
 
   function resetChanges() {
     D.revertAll();
-    setSpacer(null);
   }
 
-  function hasMirror() {
-    for (const rec of D.records.values()) if (rec.recipe === 'mirror') return true;
+  /** Counts on/off changes; true (stand down) if they come too fast. */
+  function noteFlip() {
+    const now = performance.now();
+    state.flips = state.flips.filter((t) => now - t < FLIP_WINDOW);
+    state.flips.push(now);
+    if (state.flips.length > FLIP_LIMIT) {
+      state.unstable = true;
+      return true;
+    }
     return false;
   }
 
+  /**
+   * Whether `100vw` already reaches under the column in this browser (it does
+   * in some WKWebView set-ups). If so, a page whose own overflow is exactly the
+   * column width just has a `width: 100vw` section, not real sideways content.
+   */
+  function probeViewportUnits() {
+    const probe = document.createElement('div');
+    probe.setAttribute('data-duofari-ui', 'probe');
+    probe.style.cssText = 'position:absolute!important;visibility:hidden!important;width:100vw!important;height:0!important;top:0!important;left:0!important';
+    document.documentElement.appendChild(probe);
+    const width = probe.getBoundingClientRect().width;
+    probe.remove();
+    state.vwExcess = Math.max(0, width - document.documentElement.clientWidth);
+    return width > document.documentElement.clientWidth + 1;
+  }
+
   // ---------------------------------------------------------------------------
-  // Viewport meta: WebKit fits a page without an initial-scale to its content
-  // width, so content reaching under the column would zoom the page out.
+  // Viewport meta. WebKit fits a page without an initial scale to its content
+  // width, and lets the minimum zoom follow the content width down, so content
+  // reaching under the column would zoom the page out to 382/466. Pin both to
+  // 1 — only on pages whose own content fits, where zooming out below 1 never
+  // showed anything anyway. Zooming in is untouched.
+
+  function lastViewportMeta() {
+    const metas = document.querySelectorAll('meta[name="viewport" i]');
+    return metas[metas.length - 1] || null;
+  }
 
   function fixViewportMeta() {
-    if (state.meta) return;
-    const metas = document.querySelectorAll('meta[name="viewport" i]');
-    const meta = metas[metas.length - 1];
+    if (state.allowance >= 1) return;
+    const meta = lastViewportMeta();
     if (!meta) return;
     const content = meta.getAttribute('content') || '';
-    if (/initial-scale/i.test(content) || !/width\s*=\s*device-width/i.test(content)) return;
-    state.meta = { el: meta, content };
-    meta.setAttribute('content', `${content.trim().replace(/[\s,;]+$/, '')}, initial-scale=1`);
+    if (!/width\s*=\s*device-width|initial-scale/i.test(content)) return;
+    const additions = [];
+    if (!/initial-scale/i.test(content)) additions.push('initial-scale=1');
+    if (!/minimum-scale/i.test(content)) additions.push('minimum-scale=1');
+    if (!additions.length) return;
+    const next = `${content.trim().replace(/[\s,;]+$/, '')}, ${additions.join(', ')}`;
+    if (!state.meta || state.meta.el !== meta) state.meta = { el: meta, content, ours: next };
+    state.meta.ours = next;
+    meta.setAttribute('content', next);
+  }
+
+  /** Puts our additions back if a head manager (Next.js, Helmet…) rewrote the meta. */
+  function checkViewportMeta() {
+    if (!state.active || !state.meta) return;
+    const meta = lastViewportMeta();
+    if (meta === state.meta.el && meta.getAttribute('content') === state.meta.ours) return;
+    if (++state.metaRewrites > 5) return; // the page insists; leave it
+    state.meta = null;
+    fixViewportMeta();
   }
 
   function restoreViewportMeta() {
     if (!state.meta) return;
-    if (state.meta.el.isConnected) state.meta.el.setAttribute('content', state.meta.content);
+    const { el, content, ours } = state.meta;
+    if (el.isConnected && el.getAttribute('content') === ours) el.setAttribute('content', content);
     state.meta = null;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Spacer: mirrored media paint as ink overflow, which doesn't widen the
-  // document. A 1 px invisible box makes the scrollable area cover the column
-  // so WebKit has tiles to paint the reflection into.
-
-  function setSpacer(geo) {
-    if (!geo || !geo.right) {
-      if (state.spacer) state.spacer.remove();
-      state.spacer = null;
-      return;
-    }
-    if (!state.spacer) {
-      state.spacer = document.createElement('div');
-      state.spacer.setAttribute('data-duofari-ui', 'spacer');
-      state.spacer.setAttribute('aria-hidden', 'true');
-    }
-    state.spacer.style.cssText = `position:absolute!important;top:0!important;width:1px!important;height:1px!important;` +
-      `left:${geo.layoutWidth + geo.width - 1}px!important;visibility:hidden!important;pointer-events:none!important;` +
-      `margin:0!important;padding:0!important;border:0!important`;
-    if (!state.spacer.isConnected) document.documentElement.appendChild(state.spacer);
   }
 
   // ---------------------------------------------------------------------------
@@ -162,6 +224,7 @@
     if (!state.debug) {
       const host = document.createElement('div');
       host.setAttribute('data-duofari-ui', 'debug');
+      host.setAttribute('aria-hidden', 'true');
       const shadow = host.attachShadow({ mode: 'open' });
       shadow.innerHTML = `<style>
         .col{position:fixed;top:0;bottom:0;width:var(--c);pointer-events:none;z-index:2147483646;
@@ -169,32 +232,25 @@
         .badge{position:fixed;left:8px;bottom:8px;z-index:2147483647;pointer-events:none;
           font:600 11px/1.3 -apple-system,system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.72);
           padding:4px 8px;border-radius:10px}
-      </style><div class="col r"></div><div class="col l"></div><div class="badge"></div>`;
+      </style><div class="col"></div><div class="badge"></div>`;
       document.documentElement.appendChild(host);
-      state.debug = { host, shadow, outlined: new Set(), style: null };
       const style = document.createElement('style');
       style.setAttribute('data-duofari-ui', 'debug-style');
       style.textContent = '[data-duofari-debug]{outline:2px dashed #ff2d92!important;outline-offset:-2px!important}' +
         '[data-duofari-debug=pin]{outline-color:#0a84ff!important}';
       document.documentElement.appendChild(style);
-      state.debug.style = style;
+      state.debug = { host, shadow, style, outlined: new Set() };
     }
     const { shadow } = state.debug;
     shadow.host.style.setProperty('--c', `${geo.width}px`);
-    const right = shadow.querySelector('.col.r');
-    const left = shadow.querySelector('.col.l');
-    right.style.display = geo.right ? 'block' : 'none';
-    right.style.left = `${geo.layoutWidth}px`;
-    left.style.display = geo.left ? 'block' : 'none';
-    left.style.left = `${-geo.width}px`;
+    const col = shadow.querySelector('.col');
+    col.style.left = geo.right ? `${geo.layoutWidth}px` : `${-geo.width}px`;
     const counts = countKinds();
     shadow.querySelector('.badge').textContent =
-      `Duofari · ${geo.width}px ${geo.left && geo.right ? 'both sides' : geo.right ? 'right' : 'left'} · ` +
-      `${counts.band} bars · ${counts.media + counts.breakout} images${stats && stats.truncated ? ' · partial' : ''}`;
+      `Duofari · ${geo.width}px ${geo.right ? 'right' : 'left'} · ${counts.band} bars · ${counts.media + counts.breakout} images` +
+      `${D.guard.locked ? ' · locked' : ''}${stats && stats.truncated ? ' · partial' : ''}`;
     const now = new Set(D.records.keys());
-    for (const el of state.debug.outlined) {
-      if (!now.has(el)) el.removeAttribute('data-duofari-debug');
-    }
+    for (const el of state.debug.outlined) if (!now.has(el)) el.removeAttribute('data-duofari-debug');
     for (const [el, rec] of D.records) el.setAttribute('data-duofari-debug', rec.kind);
     state.debug.outlined = now;
   }
@@ -216,32 +272,81 @@
   // ---------------------------------------------------------------------------
   // Keeping up with the page
 
+  const OBSERVE = {
+    childList: true, subtree: true, attributes: true,
+    attributeFilter: ['class', 'style', 'src', 'srcset', 'hidden', 'open', 'content', 'aria-expanded'],
+  };
+
+  /** Ignores elements that change many times a second (animations, tickers). */
+  function tooBusy(target) {
+    const now = performance.now();
+    let r = state.mutationRates.get(target);
+    if (!r || now - r.since > 1000) {
+      if (r && r.mutedUntil > now) return true;
+      r = { since: now, count: 0, mutedUntil: 0 };
+      state.mutationRates.set(target, r);
+    }
+    if (++r.count > 10) {
+      r.mutedUntil = now + 5000;
+      return true;
+    }
+    return r.mutedUntil > now;
+  }
+
   const observer = new MutationObserver((mutations) => {
     if (!state.settings.enabled) return;
+    let relevant = false;
     for (const m of mutations) {
       if (m.type === 'childList') {
-        if (relevantNodes(m.addedNodes) || relevantNodes(m.removedNodes)) return schedule();
-      } else if (m.attributeName === 'style') {
-        // Only our own elements care about inline style changes; anything
-        // else would make every JS animation trigger a scan.
-        if (D.records.has(m.target)) return schedule();
-      } else if (!(m.target instanceof Element && m.target.hasAttribute('data-duofari-ui'))) {
-        return schedule();
+        for (const n of m.addedNodes) {
+          if (n.nodeType !== 1 || n.hasAttribute('data-duofari-ui')) continue;
+          relevant = true;
+          cleanClones(n);
+        }
+        if (!relevant) for (const n of m.removedNodes) if (n.nodeType === 1 && !n.hasAttribute('data-duofari-ui')) relevant = true;
+        continue;
+      }
+      const t = m.target;
+      if (!(t instanceof Element) || t.hasAttribute('data-duofari-ui')) continue;
+      if (m.attributeName === 'content') {
+        if (t.localName === 'meta') checkViewportMeta();
+        continue;
+      }
+      if (D.records.has(t)) {
+        // The site restyled something we extended: re-measure it from the
+        // site's own styles instead of keeping stale numbers.
+        if (m.attributeName === 'class' || m.attributeName === 'style') D.markDirty(t);
+        relevant = true;
+      } else if (m.attributeName !== 'style' && !tooBusy(t)) {
+        relevant = true;
       }
     }
+    if (state.active) D.checkLifts();
+    if (relevant) schedule();
   });
 
-  function relevantNodes(nodes) {
-    for (const n of nodes) {
-      if (n.nodeType === 1 && !n.hasAttribute('data-duofari-ui')) return true;
-    }
-    return false;
+  /** Elements the page copied from ones we'd changed (sticky-header clones, loop slides). */
+  function cleanClones(node) {
+    if (!node.querySelectorAll) return;
+    if (node.hasAttribute && node.hasAttribute(D.MARK)) D.cleanClone(node);
+    for (const el of node.querySelectorAll(`[${D.MARK}]`)) D.cleanClone(el);
+  }
+
+  function observeRoot(root) {
+    if (state.observedRoots.has(root)) return;
+    state.observedRoots.add(root);
+    observer.observe(root, OBSERVE);
   }
 
   let resizeTimer = 0;
   function onResize() {
+    // Folding and unfolding pass through several intermediate sizes. Undo
+    // widths pinned for the old layout at once, then re-apply when it settles.
+    if (state.active && state.geometry && Math.abs(document.documentElement.clientWidth - state.geometry.layoutWidth) > 0.5) {
+      resetChanges();
+      observer.takeRecords();
+    }
     clearTimeout(resizeTimer);
-    // Folding and unfolding pass through several intermediate sizes.
     resizeTimer = setTimeout(runNow, RESIZE_SETTLE);
   }
 
@@ -255,38 +360,76 @@
     if (t && (t.localName === 'img' || t.localName === 'video')) schedule();
   }
 
+  function onNavigate() {
+    // A new page in a single-page app: give it a fresh chance.
+    state.unstable = false;
+    state.flips = [];
+    schedule();
+  }
+
+  function diagnostics() {
+    const vv = globalThis.visualViewport;
+    const geo = state.geometry;
+    return {
+      screen: `${screen.width}×${screen.height}`,
+      dpr: globalThis.devicePixelRatio,
+      clientWidth: document.documentElement.clientWidth,
+      innerWidth: globalThis.innerWidth,
+      innerHeight: globalThis.innerHeight,
+      visualViewport: vv ? `${Math.round(vv.width * 100) / 100} @ ${Math.round(vv.scale * 1000) / 1000}, offset ${Math.round(vv.offsetLeft)}` : 'n/a',
+      orientation: screen.orientation ? `${screen.orientation.type} ${screen.orientation.angle}°` : `${globalThis.orientation}`,
+      direction: getComputedStyle(document.documentElement).direction,
+      viewportMeta: (lastViewportMeta() || {}).content || '(none)',
+      columnPoints: geo ? geo.columnPt : 0,
+      columnCss: geo ? geo.width : 0,
+      side: geo ? geo.side : null,
+      vwIncludesColumn: state.vwIncludesColumn,
+      ownOverflow: state.allowance,
+      touchLock: D.guard.locked,
+      deviceFromApp: state.settings.device || null,
+      userAgent: navigator.userAgent,
+    };
+  }
+
+  function status() {
+    const geo = state.geometry;
+    return {
+      hostname: location.hostname,
+      active: state.active,
+      reason: state.reason,
+      column: geo ? geo.width : 0,
+      side: geo && geo.width ? geo.side : null,
+      landscape: !!(geo && geo.landscape),
+      counts: countKinds(),
+      truncated: !!(state.stats && state.stats.truncated),
+      diagnostics: diagnostics(),
+    };
+  }
+
   function onMessage(message, sender, sendResponse) {
     if (!message || typeof message.type !== 'string' || !message.type.startsWith('duofari:')) return;
-    if (message.type === 'duofari:status') {
-      const geo = state.geometry;
-      sendResponse({
-        hostname: location.hostname,
-        active: state.active,
-        reason: state.reason,
-        column: geo ? geo.width : 0,
-        left: !!(geo && geo.left),
-        right: !!(geo && geo.right),
-        counts: countKinds(),
-        truncated: !!(state.stats && state.stats.truncated),
-      });
+    if (message.type === 'duofari:rescan') {
+      state.unstable = false;
+      state.flips = [];
+      runNow();
     }
+    sendResponse(status());
   }
 
   async function start() {
     state.settings = await D.loadSettings();
     D.onSettingsChanged((patch) => {
-      const relayout = ['bands', 'media', 'breakout', 'imageStyle', 'landscapeSide', 'desktopPages', 'force', 'forceColumn']
-        .some((k) => k in patch && patch[k] !== state.settings[k]);
+      const relayout = ['bands', 'media', 'allImages', 'breakout', 'landscapeSide', 'desktopPages', 'force', 'forceColumn', 'device']
+        .some((k) => k in patch && JSON.stringify(patch[k]) !== JSON.stringify(state.settings[k]));
       Object.assign(state.settings, patch);
+      state.unstable = false;
+      state.flips = [];
       if (relayout && state.active) resetChanges();
       runNow();
     });
     if (D.api && D.api.runtime && D.api.runtime.onMessage) D.api.runtime.onMessage.addListener(onMessage);
 
-    observer.observe(document.documentElement, {
-      childList: true, subtree: true, attributes: true,
-      attributeFilter: ['class', 'style', 'src', 'srcset', 'hidden', 'open'],
-    });
+    observer.observe(document.documentElement, OBSERVE);
     if (globalThis.ResizeObserver && document.body) {
       new ResizeObserver(() => schedule()).observe(document.body);
     }
@@ -295,14 +438,14 @@
     if (globalThis.visualViewport) globalThis.visualViewport.addEventListener('resize', onResize, { passive: true });
     globalThis.addEventListener('scroll', onScroll, { passive: true });
     globalThis.addEventListener('load', () => schedule(), { once: true });
-    globalThis.addEventListener('popstate', () => schedule());
-    globalThis.addEventListener('hashchange', () => schedule());
+    globalThis.addEventListener('popstate', onNavigate);
+    globalThis.addEventListener('hashchange', onNavigate);
     globalThis.addEventListener('pageshow', () => schedule());
     document.addEventListener('visibilitychange', () => { if (!document.hidden) schedule(); });
     document.addEventListener('load', onLoad, true);
     document.addEventListener('loadedmetadata', onLoad, true);
     if (globalThis.navigation && globalThis.navigation.addEventListener) {
-      globalThis.navigation.addEventListener('navigatesuccess', () => schedule());
+      globalThis.navigation.addEventListener('navigatesuccess', onNavigate);
     }
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => schedule());
     runNow();
@@ -312,7 +455,7 @@
     state,
     run: runNow,
     deactivate,
-    status: () => new Promise((resolve) => onMessage({ type: 'duofari:status' }, null, resolve)),
+    status: () => Promise.resolve(status()),
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });

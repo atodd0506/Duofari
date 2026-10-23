@@ -2,23 +2,30 @@
 """Generates apple/Duofari.xcodeproj from the files in the repository.
 
 The project follows the structure of Apple's WWDC26 Safari web extension
-sample: an iOS app target that embeds a Safari web extension target. The web
+sample: an iPhone app target that embeds a Safari web extension target. The web
 extension's resources are referenced straight from ../extension, so the
 extension directory stays the single source of truth. Top-level files are added
 individually to Copy Bundle Resources, and subdirectories (images, _locales) as
 folder references so they keep their paths inside the .appex.
 
-Run it again after adding or removing files in extension/:
+The native folders apple/Duofari and apple/Duofari Extension are scanned too:
+Swift files go to each target's Sources, asset catalogs, privacy manifests and
+string catalogs to its Resources, and Info.plist is used as the target's
+Info.plist.
 
-    python3 scripts/gen-xcodeproj.py [--bundle-id com.example.Duofari] [--team ABCDE12345]
+Run it again after adding or removing files in extension/ or apple/:
 
-Object identifiers are derived from stable names, so regenerating an unchanged
-tree produces an identical file.
+    python3 scripts/gen-xcodeproj.py [--bundle-id com.example.Duofari] [--team ABCDE12345] [--build 42]
+
+The build number defaults to the number of commits on HEAD. Object identifiers
+are derived from stable names, so regenerating an unchanged tree at the same
+commit produces an identical file.
 """
 
 import argparse
 import hashlib
 import os
+import subprocess
 import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -28,7 +35,12 @@ PROJECT = os.path.join(APPLE, "Duofari.xcodeproj")
 
 APP_NAME = "Duofari"
 EXT_NAME = "Duofari Extension"
+APP_DIR = os.path.join(APPLE, APP_NAME)
+EXT_DIR = os.path.join(APPLE, EXT_NAME)
 DEPLOYMENT_TARGET = "27.0"
+
+# Files in a native target folder that are copied into the bundle.
+NATIVE_RESOURCE_TYPES = (".xcassets", ".xcprivacy", ".xcstrings")
 
 FILE_TYPES = {
     ".swift": "sourcecode.swift",
@@ -40,6 +52,8 @@ FILE_TYPES = {
     ".png": "image.png",
     ".svg": "text.svg",
     ".xcassets": "folder.assetcatalog",
+    ".xcprivacy": "text.xml",
+    ".xcstrings": "text.json.xcstrings",
 }
 
 
@@ -60,7 +74,7 @@ def parse_args():
     parser.add_argument("--bundle-id", default="com.example.Duofari", help="app bundle identifier; the extension gets '.Extension' appended")
     parser.add_argument("--team", default="", help="Apple developer team ID for automatic signing")
     parser.add_argument("--version", default=None, help="marketing version (default: manifest.json version)")
-    parser.add_argument("--build", default="1", help="build number (CURRENT_PROJECT_VERSION)")
+    parser.add_argument("--build", default=None, help="build number (CURRENT_PROJECT_VERSION; default: git commit count)")
     return parser.parse_args()
 
 
@@ -68,6 +82,37 @@ def manifest_version():
     import json
     with open(os.path.join(EXTENSION, "manifest.json")) as f:
         return json.load(f)["version"]
+
+
+def git_commit_count():
+    """The number of commits on HEAD, or "1" outside a git checkout."""
+    try:
+        result = subprocess.run(["git", "rev-list", "--count", "HEAD"], cwd=ROOT,
+                                capture_output=True, text=True, check=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return "1"
+    count = result.stdout.strip()
+    return count if count.isdigit() else "1"
+
+
+def native_entries(directory):
+    """Lists the Swift sources and bundle resources in a native target folder, which must hold an Info.plist."""
+    if not os.path.isfile(os.path.join(directory, "Info.plist")):
+        sys.exit(f"{os.path.relpath(directory, ROOT)}/Info.plist is missing")
+    sources, resources = [], []
+    for name in sorted(os.listdir(directory)):
+        ext = os.path.splitext(name)[1]
+        if name.startswith(".") or name == "Info.plist":
+            continue
+        if ext == ".swift":
+            sources.append(name)
+        elif ext in NATIVE_RESOURCE_TYPES:
+            resources.append(name)
+        else:
+            print(f"warning: ignoring {os.path.relpath(os.path.join(directory, name), ROOT)}", file=sys.stderr)
+    if not sources:
+        sys.exit(f"{os.path.relpath(directory, ROOT)} has no Swift files")
+    return sources, resources
 
 
 def extension_entries():
@@ -83,9 +128,15 @@ def extension_entries():
 def main():
     args = parse_args()
     version = args.version or manifest_version()
+    build = args.build or git_commit_count()
     ext_files, ext_folders = extension_entries()
     if "manifest.json" not in ext_files:
         sys.exit("extension/manifest.json is missing")
+    app_swift, app_resource_names = native_entries(APP_DIR)
+    ext_swift, ext_resource_names = native_entries(EXT_DIR)
+    clashes = sorted(set(ext_resource_names) & set(ext_files + ext_folders))
+    if clashes:
+        sys.exit(f"{EXT_NAME} resources clash with extension/: {', '.join(clashes)}")
 
     objects = {}  # id -> (comment, body lines)
 
@@ -137,13 +188,11 @@ def main():
         return [f"{i} /* {objects[i][0]} */" for i in items]
 
     # --- App target files ---------------------------------------------------
-    app_swift = ["DuofariApp.swift", "ContentView.swift"]
-    app_refs = {name: file_ref("app/" + name, name) for name in app_swift}
-    app_assets = file_ref("app/Assets.xcassets", "Assets.xcassets")
+    app_refs = {name: file_ref("app/" + name, name) for name in app_swift + app_resource_names}
     app_plist = file_ref("app/Info.plist", "Info.plist")
 
     # --- Extension target files ---------------------------------------------
-    handler = file_ref("ext/SafariWebExtensionHandler.swift", "SafariWebExtensionHandler.swift")
+    ext_refs = {name: file_ref("ext/" + name, name) for name in ext_swift + ext_resource_names}
     ext_plist = file_ref("ext/Info.plist", "Info.plist")
     res_refs = {}
     for name in ext_files:
@@ -157,15 +206,16 @@ def main():
 
     # --- Build files ----------------------------------------------------------
     app_source_builds = [build_file("app-src/" + n, app_refs[n], n, "Sources") for n in app_swift]
-    app_resource_builds = [build_file("app-res/Assets.xcassets", app_assets, "Assets.xcassets", "Resources")]
+    app_resource_builds = [build_file("app-res/" + n, app_refs[n], n, "Resources") for n in app_resource_names]
     embed_build = build_file("embed", ext_product, f"{EXT_NAME}.appex", "Embed Foundation Extensions",
                              settings="{ATTRIBUTES = (RemoveHeadersOnCopy, ); }")
-    ext_source_builds = [build_file("ext-src/handler", handler, "SafariWebExtensionHandler.swift", "Sources")]
-    ext_resource_builds = [build_file("ext-res/" + n, res_refs[n], n, "Resources") for n in ext_files + ext_folders]
+    ext_source_builds = [build_file("ext-src/" + n, ext_refs[n], n, "Sources") for n in ext_swift]
+    ext_resource_builds = [build_file("ext-native-res/" + n, ext_refs[n], n, "Resources") for n in ext_resource_names]
+    ext_resource_builds += [build_file("ext-res/" + n, res_refs[n], n, "Resources") for n in ext_files + ext_folders]
 
     # --- Groups -----------------------------------------------------------------
-    app_group = group("app", APP_NAME, ref_list([*app_refs.values(), app_assets, app_plist]), path=APP_NAME)
-    ext_group = group("ext", EXT_NAME, ref_list([handler, ext_plist]), path=EXT_NAME)
+    app_group = group("app", APP_NAME, ref_list([*app_refs.values(), app_plist]), path=APP_NAME)
+    ext_group = group("ext", EXT_NAME, ref_list([*ext_refs.values(), ext_plist]), path=EXT_NAME)
     res_group = group("res", "Resources (extension)", ref_list(list(res_refs.values())), path="../extension")
     products_group = group("products", "Products", ref_list([app_product, ext_product]))
     main_group = add(oid("group:main"), "", [
@@ -214,13 +264,13 @@ def main():
     })
     common_target = {
         "CODE_SIGN_STYLE": "Automatic",
-        "CURRENT_PROJECT_VERSION": args.build,
+        "CURRENT_PROJECT_VERSION": build,
         "DEVELOPMENT_TEAM": args.team,
         "GENERATE_INFOPLIST_FILE": "YES",
         "MARKETING_VERSION": version,
         "SWIFT_EMIT_LOC_STRINGS": "YES",
         "SWIFT_VERSION": "5.0",
-        "TARGETED_DEVICE_FAMILY": "1,2",
+        "TARGETED_DEVICE_FAMILY": "1",  # iPhone only
     }
     app_settings = dict(common_target, **{
         "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
@@ -232,7 +282,6 @@ def main():
         "INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents": "YES",
         "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
         "INFOPLIST_KEY_UISupportedInterfaceOrientations": "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight",
-        "INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad": "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight",
         "LD_RUNPATH_SEARCH_PATHS": ["$(inherited)", "@executable_path/Frameworks"],
         "OTHER_LDFLAGS": ["-framework", "SafariServices"],
         "PRODUCT_BUNDLE_IDENTIFIER": args.bundle_id,
@@ -375,7 +424,8 @@ def main():
     with open(os.path.join(schemes, f"{APP_NAME}.xcscheme"), "w") as f:
         f.write(SCHEME.format(app_id=app_target_id, ext_id=ext_target_id, app=APP_NAME, ext=EXT_NAME))
 
-    print(f"Wrote {os.path.relpath(PROJECT, ROOT)} (version {version}, {len(ext_files)} files + {len(ext_folders)} folders of extension resources)")
+    print(f"Wrote {os.path.relpath(PROJECT, ROOT)} (version {version} build {build}, "
+          f"{len(app_swift)} + {len(ext_swift)} Swift files, {len(ext_files)} files + {len(ext_folders)} folders of extension resources)")
 
 
 SCHEME = """<?xml version="1.0" encoding="UTF-8"?>

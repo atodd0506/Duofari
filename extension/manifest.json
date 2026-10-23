@@ -28,7 +28,13 @@
     }
   },
 
-  "permissions": ["storage"],
+  "background": {
+    "scripts": ["background.js"]
+  },
+
+  "permissions": ["storage", "nativeMessaging", "scripting", "activeTab"],
+
+  "host_permissions": ["*://*/*"],
 
   "content_scripts": [
     {

@@ -1,36 +1,55 @@
 #!/usr/bin/env node
 // Runs Duofari against the fixture pages in an emulated folded iPhone Duo and
-// checks that it extends what it should, never moves text or controls, holds
+// checks that it extends what it should, never moves text, controls or
+// pseudo-elements, shows art (not page background) where it claims to, holds
 // the page still, stays off where it should, and reverts cleanly.
 //
-//   node test/run-fixtures.mjs            # all checks, previews in test/output/
-//   node test/run-fixtures.mjs blog news  # only fixtures whose name matches
+//   node test/run-fixtures.mjs            # all cases, previews in test/output/
+//   node test/run-fixtures.mjs blog news  # only cases whose name matches
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPlaywright } from './lib/playwright.mjs';
 import { serve } from './lib/server.mjs';
-import { POSES, newDuoContext, injectDuofari, snapshot, duofariState, checkInvariants, settle, emulateSafariMinimumScale } from './lib/duo.mjs';
+import {
+  POSES, newDuoContext, orientPage, injectDuofari, snapshot, duofariState, checkInvariants, settle,
+  emulateSafariMinimumScale, probePoints, readPixels, hexColor, cssColor, colorDistance,
+} from './lib/duo.mjs';
 import { capturePair, pageBackground, renderPreview } from './lib/preview.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, 'output');
 
 const CASES = [
-  { name: 'appstore-story', file: 'appstore-story.html', expectActive: true, minExtended: 2 },
-  { name: 'blog', file: 'blog.html', expectActive: true, minExtended: 4, expectMeta: /initial-scale=1/ },
-  { name: 'news', file: 'news.html', expectActive: true, minExtended: 4 },
-  { name: 'edge-cases', file: 'edge-cases.html', expectActive: true, minExtended: 6 },
-  { name: 'rtl', file: 'rtl.html', expectActive: true, minExtended: 2, rtl: true },
-  { name: 'spa', file: 'spa.html', expectActive: true, minExtended: 1, spa: true },
-  { name: 'offcanvas', file: 'offcanvas.html', expectActive: true, minExtended: 2 },
-  { name: 'appstore-mirror', file: 'appstore-story.html', expectActive: true, settings: { imageStyle: 'mirror' }, strictExpect: false },
-  { name: 'appstore-landscape', file: 'appstore-story.html', pose: 'folded-landscape', expectActive: true, left: true, right: true, minExtended: 2 },
-  { name: 'desktop-layout', file: 'desktop.html', expectActive: false, reason: 'desktop-layout' },
-  { name: 'unfolded', file: 'appstore-story.html', pose: 'unfolded', expectActive: false, reason: 'no-column' },
-  { name: 'other-iphone', file: 'appstore-story.html', pose: 'iphone', expectActive: false, reason: 'not-duo' },
-  { name: 'disabled', file: 'appstore-story.html', expectActive: false, reason: 'disabled', settings: { enabled: false } },
+  { name: 'appstore-story', file: 'appstore-story.html', active: true, min: 2,
+    expect: { 'header.hero img': 'bleed' }, same: { 'header.hero img': '60,200,300' } },
+  { name: 'blog', file: 'blog.html', active: true, min: 3, meta: /initial-scale=1.*minimum-scale=1|minimum-scale=1.*initial-scale=1/ },
+  { name: 'blog-breakout', file: 'blog.html', active: true, settings: { breakout: true },
+    expect: { '#figure-img': 'breakout' } },
+  { name: 'news', file: 'news.html', active: true, min: 6 },
+  { name: 'edge-cases', file: 'edge-cases.html', active: true, min: 8 },
+  { name: 'compat', file: 'compat.html', active: true, min: 6 },
+  { name: 'images', file: 'images.html', active: true, min: 2 },
+  { name: 'images-all', file: 'images.html', active: true, settings: { allImages: true },
+    expect: { '#second': 'bleed' }, probe: { '#second': 'image' } },
+  { name: 'overflow-root', file: 'overflow-root.html', active: true, min: 2 },
+  { name: 'app-shell', file: 'app-shell.html', active: true, min: 2, appShell: '#app' },
+  { name: 'menus', file: 'menus.html', active: true, min: 1, steps: 'menus' },
+  { name: 'clone', file: 'news.html', active: true, steps: 'clone' },
+  { name: 'spa', file: 'spa.html', active: true, min: 2, spa: true },
+  { name: 'offcanvas', file: 'offcanvas.html', active: true, min: 2 },
+  { name: 'landscape-right', file: 'appstore-story.html', pose: 'landscape-right', active: true, min: 1,
+    expect: { 'header.hero img': 'inset' } },
+  { name: 'landscape-right-pinned', file: 'appstore-story.html', pose: 'landscape-right', active: true, min: 2,
+    settings: { landscapeSide: 'right' } },
+  { name: 'landscape-left', file: 'appstore-story.html', pose: 'landscape-left', active: false, reason: 'start-side' },
+  { name: 'rtl', file: 'rtl.html', active: false, reason: 'start-side' },
+  { name: 'desktop-layout', file: 'desktop.html', active: false, reason: 'desktop-layout' },
+  { name: 'unfolded', file: 'appstore-story.html', pose: 'unfolded', active: false, reason: 'no-column' },
+  { name: 'other-iphone', file: 'appstore-story.html', pose: 'iphone', active: false, reason: 'not-duo' },
+  { name: 'disabled', file: 'appstore-story.html', active: false, reason: 'disabled', settings: { enabled: false } },
+  { name: 'excluded-site', file: 'appstore-story.html', active: false, reason: 'site-disabled', settings: { disabledSites: ['127.0.0.1'] } },
 ];
 
 const filter = process.argv.slice(2);
@@ -44,57 +63,119 @@ const report = [];
 
 for (const c of CASES) {
   if (filter.length && !filter.some((f) => c.name.includes(f))) continue;
-  const pose = POSES[c.pose || 'folded'];
-  const left = !!c.left;
-  const right = c.right !== undefined ? c.right : !c.left;
-  const context = await newDuoContext(browser, c.pose || 'folded');
+  const poseName = c.pose || 'folded';
+  const pose = POSES[poseName];
+  const context = await newDuoContext(browser, poseName);
   const page = await context.newPage();
+  await orientPage(page, poseName);
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' || m.text().includes('[Duofari]')) errors.push(m.text()); });
 
   await page.goto(`${server.origin}/${c.file}`, { waitUntil: 'load' });
   await emulateSafariMinimumScale(page);
+  await page.evaluate(({ expect, same, probe }) => {
+    for (const [sel, value] of Object.entries(expect || {})) for (const el of document.querySelectorAll(sel)) el.setAttribute('data-expect', value);
+    for (const [sel, value] of Object.entries(same || {})) for (const el of document.querySelectorAll(sel)) el.setAttribute('data-probe-same', value);
+    for (const [sel, value] of Object.entries(probe || {})) for (const el of document.querySelectorAll(sel)) el.setAttribute('data-probe-column', value);
+  }, { expect: c.expect, same: c.same, probe: c.probe });
   await settle(page, 300);
+  const C = pose.column;
+  const vh = pose.viewport.height;
+  const points = await probePoints(page, C);
+  // Playwright's screenshots reset the device emulation (and with it the
+  // screen orientation), so every capture goes through this.
+  const shoot = async (opts) => { const png = await page.screenshot(opts); await orientPage(page, poseName); return png; };
+  const fullBefore = await shoot({ fullPage: true, scale: 'css' });
+  await settle(page, 200);
+  // Everything compared later is measured in the same emulation state.
   const domBefore = await page.evaluate(() => document.documentElement.outerHTML);
   const before = await snapshot(page);
   const vw = before.vw;
-  const vh = pose.viewport.height;
   const fill = await pageBackground(page);
-  const shotBefore = await page.screenshot();
+  const shotBefore = await shoot({});
 
   await injectDuofari(page, c.settings || {});
   if (c.spa) {
     await page.evaluate(() => window.navigateTo('/b'));
     await settle(page, 500);
     await page.evaluate(() => window.navigateTo('/a'));
-    await settle(page, 500);
+    await settle(page, 600);
   }
   const state = await duofariState(page);
   const failures = [];
-  const C = pose.column;
+  const right = !state || state.status.side !== 'left';
+  const left = !!state && state.status.side === 'left';
 
   if (!state) failures.push('Duofari did not start');
-  else if (state.status.active !== c.expectActive) {
-    failures.push(`expected active=${c.expectActive}, got ${state.status.active} (${state.status.reason})`);
-  }
+  else if (state.status.active !== c.active) failures.push(`expected active=${c.active}, got ${state.status.active} (${state.status.reason})`);
   if (state && c.reason && state.status.reason !== c.reason) failures.push(`expected reason ${c.reason}, got ${state.status.reason}`);
 
-  if (c.expectActive && state) {
+  if (c.active && state) {
     if (Math.abs(state.status.column - C) > 0.5) failures.push(`column ${state.status.column}, expected ${C}`);
-    if (state.status.left !== left || state.status.right !== right) failures.push(`sides left=${state.status.left} right=${state.status.right}`);
     const extended = state.records.filter((r) => r.kind !== 'pin' && r.kind !== 'clipper').length;
-    if (c.minExtended && extended < c.minExtended) failures.push(`only ${extended} elements extended, expected ≥ ${c.minExtended}`);
-    if (c.expectMeta && !c.expectMeta.test(state.viewport || '')) failures.push(`viewport meta not fixed: ${state.viewport}`);
-    if (!c.spa) {
-      const after = await snapshot(page);
-      failures.push(...checkInvariants(before, after, { C, left, right, strictExpect: c.strictExpect !== false }));
+    if (c.min && extended < c.min) failures.push(`only ${extended} elements extended, expected ≥ ${c.min}`);
+    if (c.meta && !c.meta.test(state.viewport || '')) failures.push(`viewport meta not fixed: ${state.viewport}`);
+    if (state.marks !== state.records.length) failures.push(`${state.marks} marked elements but ${state.records.length} records`);
+
+    // Scripted interactions after Duofari has settled.
+    if (c.steps === 'menus') {
+      await page.click('.menu-button');
+      await settle(page, 450);
+      const menu = await page.evaluate(() => [...document.querySelectorAll('.menu a, .search input')]
+        .filter((el) => el.getBoundingClientRect().width).map((el) => el.getBoundingClientRect().right));
+      if (!menu.length) failures.push('menu did not open');
+      for (const r of menu) if (r > vw + 0.5) failures.push(`menu item reaches into the column (right edge ${r.toFixed(1)})`);
+      await page.evaluate(() => document.getElementById('wrap').classList.add('searching'));
+      await settle(page, 450);
+      const search = await page.evaluate(() => document.querySelector('.search input').getBoundingClientRect().right);
+      if (search > vw + 0.5) failures.push(`search field reaches into the column (right edge ${search.toFixed(1)})`);
     }
-    // (RTL documents can't scroll past their right edge, so they never get wider.)
-    // (Fixed elements don't add to the scrollable area, so a page whose only
-    // extension is a fixed header doesn't get wider either.)
-    if (!c.rtl && state.status.right && state.records.some((r) => r.recipe !== 'mirror' && !r.fixed) && state.scrollWidth < vw + C - 1) {
+    if (c.steps === 'clone') {
+      const cloned = await page.evaluate(async () => {
+        const src = document.querySelector('.masthead');
+        const copy = src.cloneNode(true);
+        copy.id = 'clone';
+        copy.classList.add('clone');
+        document.body.appendChild(copy);
+        await new Promise((r) => setTimeout(r, 50));
+        return { marked: copy.hasAttribute('data-duofari'), style: copy.getAttribute('style') };
+      });
+      if (cloned.marked || (cloned.style && /-84px/.test(cloned.style))) failures.push(`clone kept Duofari's styles: ${cloned.style}`);
+    }
+
+    if (!c.spa && !c.steps) {
+      const after = await snapshot(page);
+      failures.push(...checkInvariants(before, after, { C, left, right }));
+    }
+    if (state.status.side === 'right' && state.records.some((r) => !r.fixed) && state.scrollWidth < vw + C - 1) {
       failures.push(`document isn't wide enough to reach the column: scrollWidth ${state.scrollWidth}`);
+    }
+    if (c.appShell) {
+      const sideways = await page.evaluate((sel) => { const el = document.querySelector(sel); return el.scrollWidth - el.clientWidth; }, c.appShell);
+      if (sideways > 1) failures.push(`app shell became sideways-scrollable by ${sideways}px`);
+    }
+
+    // Pixel probes: what actually shows in the column, and nothing inside the page moves.
+    if (points.length && right) {
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await settle(page, 200);
+      const fullAfter = await shoot({ fullPage: true, scale: 'css' });
+      const beforePx = await readPixels(browser, fullBefore, points);
+      const afterPx = await readPixels(browser, fullAfter, points);
+      const pageColor = cssColor(fill);
+      points.forEach((p, i) => {
+        const got = afterPx[i];
+        if (p.kind === 'same') {
+          if (colorDistance(beforePx[i], got) > 24) failures.push(`${p.name}: pixel at x=${p.x} changed ${beforePx[i]} → ${got}`);
+        } else if (p.want === 'image') {
+          if (colorDistance(got, pageColor) < 20) failures.push(`${p.name}: column shows page background, not the art`);
+        } else if (p.want === 'page') {
+          if (colorDistance(got, pageColor) > 20) failures.push(`${p.name}: column should show page background, got ${got}`);
+        } else if (colorDistance(got, hexColor(p.want)) > 30) {
+          failures.push(`${p.name}: column pixel ${got}, wanted ${p.want}`);
+        }
+      });
     }
 
     // The guard puts a sideways-scrolled page back.
@@ -104,11 +185,12 @@ for (const c of CASES) {
     if (Math.abs(x) > 0.5) failures.push(`page left scrolled sideways (scrollX ${x})`);
     if (!/pan-y/.test(state.touchAction)) failures.push(`touch-action not restricted (${state.touchAction})`);
 
-    // Preview images.
     if (right) {
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await settle(page, 150);
       const shotAfter = await capturePair(page, { C, vw, vh });
-      const png = await renderPreview(browser, { before: shotBefore, after: shotAfter, fill, C, vw, vh, title: c.name });
-      await writeFile(join(OUT, `${c.name}.png`), png);
+      await orientPage(page, poseName);
+      await writeFile(join(OUT, `${c.name}.png`), await renderPreview(browser, { before: shotBefore, after: shotAfter, fill, C, vw, vh, title: c.name }));
     }
 
     // Turning Duofari off restores the page exactly.
@@ -117,7 +199,7 @@ for (const c of CASES) {
       globalThis.Duofari.controller.run();
     });
     const domAfter = await page.evaluate(() => document.documentElement.outerHTML);
-    if (!c.spa && domAfter !== domBefore) {
+    if (!c.spa && !c.steps && domAfter !== domBefore) {
       failures.push('DOM differs after turning Duofari off');
       await writeFile(join(OUT, `${c.name}.dom-before.html`), domBefore);
       await writeFile(join(OUT, `${c.name}.dom-after.html`), domAfter);

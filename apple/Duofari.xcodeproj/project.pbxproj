@@ -7,14 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0D7F130CC1ABDF855FA788C6 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8257122C88617464EC90B51C /* SafariWebExtensionHandler.swift */; };
+		15E92C3BBF2ACEBE8D29D63E /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 21003D6C03DA6E4EACC83424 /* Localizable.xcstrings */; };
 		2773CE8883F4E7885EBA6A1E /* images in Resources */ = {isa = PBXBuildFile; fileRef = DE69839CF624E3C91BBEBEA7 /* images */; };
+		27BB43C662C92ABA71583438 /* HowItLooksIllustration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06AF6A1C5A4F25E1C983A905 /* HowItLooksIllustration.swift */; };
 		325FF1B0B6AB63211DDE43EC /* content-classify.js in Resources */ = {isa = PBXBuildFile; fileRef = 1F740BC47E584AD0A26027F9 /* content-classify.js */; };
 		4887AC42F158AEFAB7C42AFE /* content-guard.js in Resources */ = {isa = PBXBuildFile; fileRef = 035AFD4F5CF810B7A3A0CF78 /* content-guard.js */; };
+		4A69D9E6212B356BAAC68929 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5D313D6FC33A418266EC8951 /* PrivacyInfo.xcprivacy */; };
 		4C3F1B7BDF0C122051EA55BE /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = DE568C77BD10A9BBA7FBCF0F /* manifest.json */; };
 		54434BFB8F1E00C81FBF30FE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 67609D462586611867394194 /* Assets.xcassets */; };
 		652C3E3B7F63CA89E063E286 /* Duofari Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B408B9B21E282F43573B093A /* Duofari Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		662C0CE37BF6F5194A2BD739 /* popup.html in Resources */ = {isa = PBXBuildFile; fileRef = 403EAF72828473DE627FEE28 /* popup.html */; };
-		6849987D1C29AF470002DEE1 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8257122C88617464EC90B51C /* SafariWebExtensionHandler.swift */; };
 		7B74946A4C59EBFFA1856A62 /* content-bleed.js in Resources */ = {isa = PBXBuildFile; fileRef = 8AE5EFC833472AB72C9F78C5 /* content-bleed.js */; };
 		86D288303F313193247B9297 /* DuofariApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F665EE487A325E1310E58E /* DuofariApp.swift */; };
 		8E16CCEB13214C4FDB03BC39 /* popup.js in Resources */ = {isa = PBXBuildFile; fileRef = FB9A15E49CC3B2A21C9FF62B /* popup.js */; };
@@ -23,7 +26,11 @@
 		B17437DA98ECD6C8B209BC31 /* shared-settings.js in Resources */ = {isa = PBXBuildFile; fileRef = 7415651540FDC74D05EF694D /* shared-settings.js */; };
 		C6B57A3C668FDDFFB5BB1CF5 /* popup.css in Resources */ = {isa = PBXBuildFile; fileRef = DE397C9F7E3471535FDC6BAA /* popup.css */; };
 		CB4A074F25DF74D4DC368EB1 /* content-main.js in Resources */ = {isa = PBXBuildFile; fileRef = 9B7C3D25E0FE9454736D5A0E /* content-main.js */; };
+		CB8C9005863289CFEA0E6A72 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 66F56E8EA3D963360C567ADC /* background.js */; };
+		D2EFBD95B7C196B28D4A1A1C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 52253B9C7A662BDC8ED8C40A /* PrivacyInfo.xcprivacy */; };
 		DE84D37DB78E9B42FB6CA742 /* content-geometry.js in Resources */ = {isa = PBXBuildFile; fileRef = 76B298013836A1F0743A0E16 /* content-geometry.js */; };
+		E263D490640E1C6AF9757776 /* DeviceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8C178556C697AD02D56271B /* DeviceInfo.swift */; };
+		FCC08F74EDE45EAC3DC80E53 /* ExtensionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB337D5A16C1438278E336F /* ExtensionStatus.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,10 +59,16 @@
 
 /* Begin PBXFileReference section */
 		035AFD4F5CF810B7A3A0CF78 /* content-guard.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "content-guard.js"; sourceTree = "<group>"; };
+		06AF6A1C5A4F25E1C983A905 /* HowItLooksIllustration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HowItLooksIllustration.swift; sourceTree = "<group>"; };
 		1F740BC47E584AD0A26027F9 /* content-classify.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "content-classify.js"; sourceTree = "<group>"; };
+		21003D6C03DA6E4EACC83424 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		403EAF72828473DE627FEE28 /* popup.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = popup.html; sourceTree = "<group>"; };
 		4C5ADBC43C711F9EAD963A2C /* _locales */ = {isa = PBXFileReference; lastKnownFileType = folder; path = _locales; sourceTree = "<group>"; };
+		4FB337D5A16C1438278E336F /* ExtensionStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionStatus.swift; sourceTree = "<group>"; };
+		52253B9C7A662BDC8ED8C40A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		5D313D6FC33A418266EC8951 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		626B62F6FC3E482CC6FA40E8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		66F56E8EA3D963360C567ADC /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = background.js; sourceTree = "<group>"; };
 		67609D462586611867394194 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6C1A72199B78320B07C881EF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		7415651540FDC74D05EF694D /* shared-settings.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "shared-settings.js"; sourceTree = "<group>"; };
@@ -66,6 +79,7 @@
 		96DE7FA3FB469DE354DD145C /* Duofari.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Duofari.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9B7C3D25E0FE9454736D5A0E /* content-main.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "content-main.js"; sourceTree = "<group>"; };
 		B408B9B21E282F43573B093A /* Duofari Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Duofari Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C8C178556C697AD02D56271B /* DeviceInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceInfo.swift; sourceTree = "<group>"; };
 		DE397C9F7E3471535FDC6BAA /* popup.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = popup.css; sourceTree = "<group>"; };
 		DE568C77BD10A9BBA7FBCF0F /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
 		DE69839CF624E3C91BBEBEA7 /* images */ = {isa = PBXFileReference; lastKnownFileType = folder; path = images; sourceTree = "<group>"; };
@@ -104,6 +118,7 @@
 		97FDA21A4B7AC9B19A98EAE4 /* Resources (extension) */ = {
 			isa = PBXGroup;
 			children = (
+				66F56E8EA3D963360C567ADC /* background.js */,
 				8AE5EFC833472AB72C9F78C5 /* content-bleed.js */,
 				1F740BC47E584AD0A26027F9 /* content-classify.js */,
 				76B298013836A1F0743A0E16 /* content-geometry.js */,
@@ -134,6 +149,7 @@
 			isa = PBXGroup;
 			children = (
 				8257122C88617464EC90B51C /* SafariWebExtensionHandler.swift */,
+				52253B9C7A662BDC8ED8C40A /* PrivacyInfo.xcprivacy */,
 				6C1A72199B78320B07C881EF /* Info.plist */,
 			);
 			path = "Duofari Extension";
@@ -142,9 +158,14 @@
 		E86D0F8ADA68E6E7E1F5F5D8 /* Duofari */ = {
 			isa = PBXGroup;
 			children = (
-				87F665EE487A325E1310E58E /* DuofariApp.swift */,
 				E02D3EBBE76C69A192ECEB81 /* ContentView.swift */,
+				C8C178556C697AD02D56271B /* DeviceInfo.swift */,
+				87F665EE487A325E1310E58E /* DuofariApp.swift */,
+				4FB337D5A16C1438278E336F /* ExtensionStatus.swift */,
+				06AF6A1C5A4F25E1C983A905 /* HowItLooksIllustration.swift */,
 				67609D462586611867394194 /* Assets.xcassets */,
+				21003D6C03DA6E4EACC83424 /* Localizable.xcstrings */,
+				5D313D6FC33A418266EC8951 /* PrivacyInfo.xcprivacy */,
 				626B62F6FC3E482CC6FA40E8 /* Info.plist */,
 			);
 			path = Duofari;
@@ -232,6 +253,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D2EFBD95B7C196B28D4A1A1C /* PrivacyInfo.xcprivacy in Resources */,
+				CB8C9005863289CFEA0E6A72 /* background.js in Resources */,
 				7B74946A4C59EBFFA1856A62 /* content-bleed.js in Resources */,
 				325FF1B0B6AB63211DDE43EC /* content-classify.js in Resources */,
 				DE84D37DB78E9B42FB6CA742 /* content-geometry.js in Resources */,
@@ -252,6 +275,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				54434BFB8F1E00C81FBF30FE /* Assets.xcassets in Resources */,
+				15E92C3BBF2ACEBE8D29D63E /* Localizable.xcstrings in Resources */,
+				4A69D9E6212B356BAAC68929 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -262,8 +287,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				86D288303F313193247B9297 /* DuofariApp.swift in Sources */,
 				A7C0A67FC8A0795867E1E2BA /* ContentView.swift in Sources */,
+				E263D490640E1C6AF9757776 /* DeviceInfo.swift in Sources */,
+				86D288303F313193247B9297 /* DuofariApp.swift in Sources */,
+				FCC08F74EDE45EAC3DC80E53 /* ExtensionStatus.swift in Sources */,
+				27BB43C662C92ABA71583438 /* HowItLooksIllustration.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -271,7 +299,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6849987D1C29AF470002DEE1 /* SafariWebExtensionHandler.swift in Sources */,
+				0D7F130CC1ABDF855FA788C6 /* SafariWebExtensionHandler.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -302,7 +330,6 @@
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -316,7 +343,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -389,7 +416,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -409,7 +436,6 @@
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -423,7 +449,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -452,7 +478,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};

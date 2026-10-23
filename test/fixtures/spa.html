@@ -18,7 +18,7 @@
     // Renders a "route" after a delay and swaps it on pushState navigation, the
     // way client-side frameworks do.
     const routes = {
-      '/a': '<div class="bar" data-expect="bleed">Route A</div><img class="hero" data-expect="bleed" alt="" src="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 4 2%27%3E%3Crect width=%274%27 height=%272%27 fill=%27%23e70%27/%3E%3C/svg%3E"><p class="content" data-expect="inset">Route A content.</p>',
+      '/a': '<div class="bar" data-expect="bleed">Route A</div><img class="hero" data-expect="bleed" alt="" src="img/photo.jpg"><p class="content" data-expect="inset">Route A content.</p>',
       '/b': '<div class="bar" data-expect="bleed" style="background:#06c">Route B</div><p class="content" data-expect="inset">Route B has no hero image.</p>',
     };
     function render(path) { document.getElementById('app').innerHTML = routes[path] || routes['/a']; }

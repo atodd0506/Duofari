@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Real-site patterns</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.4 system-ui, sans-serif; background: #fff; }
+  section { margin-bottom: 8px; }
+  /* 1. Accordion row: chevron drawn by ::after at right:16px. */
+  .faq-q { position: relative; padding: 14px 16px; background: #eef2ff; }
+  .faq-q::after { content: "›"; position: absolute; right: 16px; top: 10px; font-size: 22px; }
+  /* 2. List row with a chevron as a background image on the right. */
+  .row { padding: 14px 40px 14px 16px; background: #fff7e6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Cpath d='M3 1l6 5-6 5' fill='none' stroke='%23000' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 16px center; }
+  /* 3. Header with a centred logo background. */
+  .logo-bar { height: 56px; background: #102a43 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='24'%3E%3Crect width='80' height='24' rx='6' fill='%23f0b429'/%3E%3C/svg%3E") no-repeat center; }
+  /* 4. Ratio box: grey placeholder, cover photo at inset:0, a badge. */
+  .ratio { position: relative; padding-top: 56.25%; overflow: hidden; background: #ddd; }
+  .ratio img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .ratio .badge { position: absolute; right: 8px; bottom: 8px; background: #000; color: #fff; font: 12px system-ui; padding: 2px 6px; border-radius: 4px; }
+  /* 5. Hero with a dimming ::before overlay and a Menu button. */
+  .dim { position: relative; height: 160px; background: #0c0; color: #fff; padding: 16px; }
+  .dim::before { content: ""; position: absolute; inset: 0; background: rgba(0,0,0,.6); }
+  .dim button { position: absolute; right: 16px; top: 16px; }
+  .dim h3 { position: relative; margin: 60px 0 0; }
+  /* 6. Header with `transition: all` (shrink-on-scroll themes). */
+  .trans { transition: all .3s; background: #7c3aed; color: #fff; padding: 16px; }
+  /* 7. Bootstrap 4 full-width column (flex-basis overrides width). */
+  .bs-row { display: flex; flex-wrap: wrap; }
+  .bs-col { flex: 0 0 100%; max-width: 100%; padding: 16px; background: #0ea5e9; color: #fff; }
+  /* 8. aspect-ratio hero under a global border-box reset. */
+  .aspect { aspect-ratio: 16 / 9; background: #f97316; color: #fff; padding: 16px; }
+  /* 9. A Swiper-like carousel: slides past the edge, hidden by overflow. */
+  .swiper { overflow: hidden; background: #222; }
+  .swiper-wrapper { display: flex; transform: translate3d(0, 0, 0); }
+  .swiper-slide { flex: 0 0 100%; height: 140px; }
+  /* 10. A collapsed-border table with a background. */
+  table.data { width: 100%; border-collapse: collapse; background: #ecfccb; }
+  table.data td { padding: 8px 16px; }
+  table.data td:last-child { text-align: right; }
+</style>
+</head>
+<body>
+  <section><div class="faq-q" data-expect="bleed" data-pseudo-check><span data-expect="inset">1. Accordion row with a ::after chevron</span></div></section>
+  <section class="row" data-expect="bleed" data-probe="358,#000000"><span data-expect="inset">2. Row with a background chevron</span></section>
+  <section class="logo-bar" data-expect="bleed" data-probe="191,#f0b429"></section>
+  <section class="ratio" data-expect="bleed" data-probe-column="image"><img data-expect="bleed" alt="" src="img/hero.jpg"><span class="badge" data-expect="inset">12:34</span></section>
+  <section class="dim" data-expect="bleed" data-probe-column="#005200"><button data-expect="inset">Menu</button><h3 data-expect="inset">5. Dimmed hero</h3></section>
+  <section class="trans" data-expect="bleed"><span data-expect="inset">6. Header with transition: all</span></section>
+  <section class="bs-row"><div class="bs-col" data-expect="bleed"><span data-expect="inset">7. Bootstrap 4 column</span></div></section>
+  <section class="aspect" data-expect="bleed"><span data-expect="inset">8. aspect-ratio hero</span></section>
+  <section class="swiper" data-expect="bleed" data-probe-column="#222222">
+    <div class="swiper-wrapper" data-expect="none">
+      <div class="swiper-slide" style="background:#c00"></div><div class="swiper-slide" style="background:#0a0"></div>
+    </div>
+  </section>
+  <section><table class="data" data-expect="none"><tr><td data-expect="inset">10. Table</td><td><a href="#" data-expect="inset">login</a></td></tr></table></section>
+  <div style="height:700px"></div>
+</body>
+</html>

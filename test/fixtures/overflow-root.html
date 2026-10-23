@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>html, body { overflow-x: hidden }</title>
+<style>
+  html, body { overflow-x: hidden; }
+  body { margin: 0; font: 16px system-ui, sans-serif; }
+  header { background: #c00; color: #fff; padding: 20px 16px; }
+  .hero { display: block; width: 100%; height: 220px; object-fit: cover; }
+</style>
+</head>
+<body>
+  <header data-expect="bleed" data-probe-column="#cc0000"><span data-expect="inset">The classic WordPress fix: html and body both hide overflow</span></header>
+  <img class="hero" data-expect="bleed" data-probe-column="image" alt="" src="img/banner.jpg">
+  <p data-expect="inset" style="margin:16px">Body becomes a clipping box here, so it has to reach into the column too.</p>
+  <div style="height:900px"></div>
+</body>
+</html>
