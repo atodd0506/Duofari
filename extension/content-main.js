@@ -151,8 +151,8 @@
       observeRoot,
     };
     // A pass cut short goes on where it stopped. Anything else that asks for
-    // a scan meanwhile has the page walked again from the top once that pass
-    // is done.
+    // a scan meanwhile starts a new pass from the top at once, which shares
+    // each slice with the unfinished one.
     ctx.resume = state.cursor;
     ctx.again = !state.resuming;
     const stats = D.scan(ctx);

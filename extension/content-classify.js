@@ -27,6 +27,7 @@
   const BREAKOUT_MIN_WIDTH = 0.8;
   const OVERLAY_HEIGHT = 0.9;
   const LEAD_DEPTH = 1.5;     // viewport heights from the top where the lead image may start
+  const FRESH_SHARE = 0.25;   // of a slice, for a pass begun while another is unfinished
 
   const SKIP = new Set([
     'script', 'style', 'link', 'meta', 'template', 'noscript', 'br', 'wbr', 'head', 'title', 'source', 'track',
@@ -246,10 +247,14 @@
    * One slice of a pass over the page. A pass cut short by the budget or the
    * deadline returns `stats.cursor`; given back as `ctx.resume`, the next
    * slice goes on from there, so a large page is walked to the end. With
-   * `ctx.again` (the page changed meanwhile) the page is walked again from
-   * the top once that pass is done: a fresh pass never throws away an
-   * unfinished one, so a page that changes more often than one pass takes is
-   * still walked to the end.
+   * `ctx.again` (the page changed meanwhile) a new pass starts from the top
+   * at once, alongside the unfinished one. It walks first, for FRESH_SHARE
+   * of each slice once it has begun, and the older pass then has the rest
+   * of a slice, however long that took. So <body> and the top of the page
+   * are looked at again straight away, and the older pass still ends however
+   * often the page changes. Once it has, the newer one goes on alone; if the
+   * newer one gets to the end first, the older one has nothing left to do.
+   * Until then the newer one puts off most looks for latecomers (see holds).
    * @param {object} ctx  { layoutWidth, viewportHeight, C, left, right, media, settings, budget, deadline,
    *                        touchRoots:Set, scrollers:Set, observeRoot(root), resume, again }
    */
@@ -267,36 +272,48 @@
     const colorCache = new Map();
     const layoutKey = `${vw}|${C}|${sides.left}|${sides.right}|${!!ctx.media}`;
     const resume = ctx.resume && ctx.resume.layoutKey === layoutKey && ctx.resume.body === body ? ctx.resume : null;
-    let state = resume ? resume.state : null;
-    let stack = resume ? resume.stack : [];
-    let again = !resume || resume.again || !!ctx.again;
     const scrollY = globalThis.scrollY;
+    const slice = ctx.deadline ? ctx.deadline - performance.now() : 0;
 
-    if (ctx.touchRoots) {
-      ctx.touchRoots.add(document.documentElement);
-      ctx.touchRoots.add(body);
-      if (resume) for (const root of resume.touchRoots) ctx.touchRoots.add(root);
-    }
+    // kept: the touch roots of a pass that ended before the newer one had been everywhere.
+    let pass = resume ? resume.pass : null;
+    let fresh = resume ? resume.fresh : null;
+    let kept = resume ? resume.kept : null;
+    if (!pass) pass = beginPass(body, stats, vw, null);
+    else if (ctx.again) fresh = beginPass(body, stats, vw, pass);
+    let walk = fresh || pass;
+    let budget = fresh ? ctx.budget * FRESH_SHARE : ctx.budget;
+    let deadline = fresh && ctx.deadline ? performance.now() + slice * FRESH_SHARE : ctx.deadline;
 
-    while (stack.length || again) {
-      if (stats.visited >= ctx.budget || (ctx.deadline && performance.now() > ctx.deadline)) {
-        stats.truncated = true;
-        stats.cursor = { layoutKey, body, state, stack, again, touchRoots: ctx.touchRoots || [] };
-        break;
-      }
-      if (!stack.length) {
-        // A new pass, from the top, which finds its own touch roots.
-        // brokenOut: photos reverted from a breakout earlier in it.
-        again = false;
-        state = { leadTaken: false, brokenOut: new Set() };
-        if (ctx.touchRoots) {
-          ctx.touchRoots.clear();
-          ctx.touchRoots.add(document.documentElement).add(body);
+    for (;;) {
+      if (!walk.stack.length) {
+        if (!fresh) {
+          kept = null;
+          break;
         }
-        beginPass(body, state, stats, vw);
-        stack = childElements(body).reverse();
+        // Either the older pass is done, and the newer one goes on alone, or
+        // the newer one has walked the whole page, and the older one has
+        // nothing left to do. A box it then has to measure again is reverted,
+        // and the page walked again from the top.
+        kept = walk === fresh ? null : pass.roots;
+        pass = walk = fresh;
+        fresh = null;
+        if (lookLate(pass, vw, stats)) fresh = beginPass(body, stats, vw, pass);
         continue;
       }
+      if (stats.visited >= budget || (deadline && performance.now() > deadline)) {
+        if (walk === fresh) {
+          // The older pass's share, however long the newer one's took.
+          walk = pass;
+          budget = ctx.budget;
+          deadline = ctx.deadline && Math.max(ctx.deadline, performance.now() + slice * (1 - FRESH_SHARE));
+          continue;
+        }
+        stats.truncated = true;
+        stats.cursor = { layoutKey, body, pass, fresh, kept };
+        break;
+      }
+      const { stack, state } = walk;
       const el = stack.pop();
       const tag = el.localName;
       // A resumed pass holds elements the page may have removed since.
@@ -305,7 +322,8 @@
 
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) {
-        if (getComputedStyle(el).display === 'contents') pushChildren(stack, el, ctx);
+        const cs = getComputedStyle(el);
+        if (cs.display === 'contents' && !isCarousel(el, cs)) pushChildren(stack, el, ctx);
         continue;
       }
       if (r.bottom < winTop || r.top > winBottom) continue;
@@ -316,12 +334,12 @@
         const leaf = rec.kind === 'media' || rec.kind === 'breakout';
         if (mustWait(rec)) {
           stats.waiting = true;
-          if (!leaf) descend(stack, el, getComputedStyle(el), r, ctx, vw);
+          if (!leaf) descend(walk, el, getComputedStyle(el), r, ctx, vw);
           continue;
         }
-        if (D.stillValid(rec) && D.repinLatecomers(rec, vw)) {
+        if (holds(rec, vw, walk)) {
           if (rec.kind === 'media' && r.top + scrollY < LEAD_DEPTH * ctx.viewportHeight) state.leadTaken = true;
-          if (!leaf) descend(stack, el, getComputedStyle(el), r, ctx, vw);
+          if (!leaf) descend(walk, el, getComputedStyle(el), r, ctx, vw);
           continue;
         }
         invalidate(rec, state, stats);
@@ -331,7 +349,7 @@
       const rect = el.getBoundingClientRect();
       const touch = edgeState(rect, vw, C, sides, near);
       if (!touch.relevant) {
-        if (touch.overflowReaches(el)) pushChildren(stack, el, ctx);
+        if (touch.overflowReaches(el) && !isCarousel(el, getComputedStyle(el))) pushChildren(stack, el, ctx);
         continue;
       }
 
@@ -347,13 +365,13 @@
       if (touch.bleeds) {
         // Already reaches into the column (the site's own 100vw, or artwork
         // that grew with an extended parent). Nothing to do but look inside.
-        descend(stack, el, cs, rect, ctx, vw);
+        descend(walk, el, cs, rect, ctx, vw);
         continue;
       }
 
       const key = `${layoutKey}|${rect.width}|${rect.height}`;
       if (blocked.has(el) || rejected.get(el) === key || animating(el) || anchors(cs)) {
-        if (!MEDIA.has(tag)) descend(stack, el, cs, rect, ctx, vw);
+        if (!MEDIA.has(tag)) descend(walk, el, cs, rect, ctx, vw);
         continue;
       }
 
@@ -365,14 +383,13 @@
         continue;
       }
 
-      const carousel = el.matches(CAROUSELS) || (cs.scrollSnapType && cs.scrollSnapType !== 'none');
       if (touch.full && s.bands && !REPLACED.has(tag) && !/^table/.test(cs.display) && !el.matches(D.INTERACTIVE) &&
           !(cs.display.startsWith('inline') && cs.display !== 'inline-block') && hasBackground(el, cs, colorCache)) {
         // A scroll container's padding box is its scrollport, and a clipping
         // box's clip has to reach into the column for its children to show
         // there. Everything else keeps its padding box: positioned children,
         // pseudo-elements and icons stay exactly where they were.
-        const recipes = scrollsX(el, cs) || carousel ? ['border'] : D.clips(el, cs) ? ['padding', 'border'] : ['border', 'padding'];
+        const recipes = scrollsX(el, cs) || isCarousel(el, cs) ? ['border'] : D.clips(el, cs) ? ['padding', 'border'] : ['border', 'padding'];
         const extend = () => D.extendBox(el, 'band', sides, C, { recipes, layoutWidth: vw, pictures: ctx.media });
         const done = applyGuarded(el, stats, sides, C, vw, extend, ctx.media);
         if (done) {
@@ -382,15 +399,25 @@
         }
       }
 
-      if (carousel) continue;
-      descend(stack, el, cs, rect, ctx, vw);
+      descend(walk, el, cs, rect, ctx, vw);
     }
 
+    if (ctx.touchRoots) {
+      ctx.touchRoots.add(document.documentElement).add(body);
+      for (const roots of [kept, pass.roots, fresh && fresh.roots]) if (roots) for (const el of roots) ctx.touchRoots.add(el);
+    }
     return stats;
   };
 
-  /** What a pass does once, before it walks <body>'s children. */
-  function beginPass(body, state, stats, vw) {
+  /**
+   * Starts a pass from the top, which finds its own touch roots, with what a
+   * pass does once before it walks <body>'s children. `older`: the
+   * unfinished pass it is begun alongside, if any. brokenOut: photos
+   * reverted from a breakout earlier in either.
+   */
+  function beginPass(body, stats, vw, older) {
+    const brokenOut = older ? older.state.brokenOut : new Set();
+    const walk = { stack: [], state: { leadTaken: false, brokenOut }, roots: new Set(), owed: older ? new Set() : null };
     // Whatever Duofari writes into editable content would be saved with it.
     for (const [el, rec] of D.records) if (!rec.owner && el.isContentEditable) D.revert(el);
 
@@ -398,21 +425,62 @@
     const bodyRec = D.records.get(body);
     if (bodyRec && mustWait(bodyRec)) {
       stats.waiting = true;
-    } else if (bodyRec && !(D.stillValid(bodyRec) && D.repinLatecomers(bodyRec, vw))) {
-      invalidate(bodyRec, state, stats);
+    } else if (bodyRec && !holds(bodyRec, vw, walk)) {
+      invalidate(bodyRec, walk.state, stats);
     }
+    walk.stack = childElements(body).reverse();
+    return walk;
   }
 
-  /** Visits an element's children, unless it is a small scroll container (carousel, tab strip). */
-  function descend(stack, el, cs, rect, ctx, vw) {
+  /**
+   * Whether an extended box still holds, with the positioned boxes that
+   * appeared in it since pinned. Looking for those reads the style of
+   * everything inside, so a pass begun while another is unfinished, which
+   * may be every scan, puts that off (in `owed`) until it is on its own,
+   * unless a positioned box was added there.
+   */
+  function holds(rec, vw, walk) {
+    const added = !!walk.owed && !!rec.added &&
+      [...rec.added].some((n) => n.nodeType === 1 && n.isConnected && /absolute|fixed/.test(getComputedStyle(n).position));
+    if (!D.stillValid(rec)) return false;
+    if (walk.owed && !added) {
+      walk.owed.add(rec);
+      return true;
+    }
+    return D.repinLatecomers(rec, vw);
+  }
+
+  /**
+   * The looks for latecomers a pass put off, once it is on its own. True if
+   * a box had to be reverted to be measured again, with what is inside it.
+   */
+  function lookLate(walk, vw, stats) {
+    let reverted = false;
+    for (const rec of walk.owed || []) {
+      if (D.records.get(rec.el) !== rec || D.repinLatecomers(rec, vw)) continue;
+      invalidate(rec, walk.state, stats);
+      reverted = true;
+    }
+    walk.owed = null;
+    return reverted;
+  }
+
+  /** Carousels and sliders, whose slides are never touched. */
+  function isCarousel(el, cs) {
+    return el.matches(CAROUSELS) || (!!cs.scrollSnapType && cs.scrollSnapType !== 'none');
+  }
+
+  /** Visits an element's children, unless it is a carousel or a small scroll container (a tab strip). */
+  function descend(walk, el, cs, rect, ctx, vw) {
+    if (isCarousel(el, cs)) return;
     if (isScroller(el, cs)) {
       const pageSized = Math.abs(rect.left) <= TOL && rect.right >= vw - TOL && rect.height >= 0.6 * ctx.viewportHeight;
       if (!pageSized) return;
       // An app shell that scrolls instead of the document: hold it still too.
       if (ctx.scrollers && !scrollsX(el, cs)) ctx.scrollers.add(el);
     }
-    if (ctx.touchRoots && resetsTouchAction(cs) && !scrollsX(el, cs)) ctx.touchRoots.add(el);
-    pushChildren(stack, el, ctx);
+    if (resetsTouchAction(cs) && !scrollsX(el, cs)) walk.roots.add(el);
+    pushChildren(walk.stack, el, ctx);
   }
 
   function pushChildren(stack, el, ctx) {

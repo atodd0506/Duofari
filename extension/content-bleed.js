@@ -130,8 +130,24 @@
   D.revert = revert;
 
   D.revertAll = function revertAll() {
+    for (const rec of records.values()) releaseCopies(rec);
     for (const el of [...records.keys()]) if (records.has(el)) revert(el);
   };
+
+  /**
+   * Bootstrap's modal scroll lock saves the inline padding or margin it
+   * finds, ours while a box is extended, in a data attribute and writes it
+   * back when the modal closes. With Duofari gone by then, that copy has to
+   * hold the page's own value (or nothing, so the property is removed).
+   */
+  function releaseCopies(rec) {
+    for (const [prop, orig] of rec.saved) {
+      const attr = `data-bs-${prop}`;
+      if (normalise(rec.el.getAttribute(attr)) !== normalise(rec.applied.get(prop))) continue;
+      if (orig.value) rec.el.setAttribute(attr, orig.value);
+      else rec.el.removeAttribute(attr);
+    }
+  }
 
   /** Drops records of elements the page has removed (restoring them in case they come back). */
   D.pruneDetached = function pruneDetached() {
@@ -489,11 +505,11 @@
    * textless box of background art (a tint, slides, a parallax backdrop)
    * whose pictures are cover-fitted and fill it. A layer with foreground in
    * it (a centred logo, a contained product shot, a play icon drawn as a
-   * background image) keeps its place, and so, without `pictures`, does
-   * anything that draws a picture.
+   * background image) keeps its place, and so do a video with controls and,
+   * without `pictures`, anything that draws a picture.
    */
   function growsWithBox(node, rect, pictures) {
-    if (/^(img|video)$/.test(node.localName)) return pictures && /^(cover|fill)$/.test(getComputedStyle(node).objectFit);
+    if (/^(img|video)$/.test(node.localName)) return pictures && isArt(node) && /^(cover|fill)$/.test(getComputedStyle(node).objectFit);
     if (/^(canvas|svg)$/.test(node.localName) || !isArt(node) || !scalesWithBox(getComputedStyle(node), pictures)) return false;
     for (const inner of node.querySelectorAll('*')) {
       const ics = getComputedStyle(inner);

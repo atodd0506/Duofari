@@ -1238,7 +1238,7 @@ const ENGINE = [
   },
 
   {
-    name: 'engine-r2-10',
+    name: 'engine-r2-10b',
     what: "extending a band's border reads no pseudo-elements of what is inside it",
     html: page(`
       header { position: sticky; top: 0; background: #036; color: #fff; padding: 12px 16px; z-index: 9; }
@@ -1727,6 +1727,140 @@ const ENGINE = [
       }));
       if (!near(s.hero, VW + C)) failures.push(`hero not extended (right edge ${s.hero})`);
       if (s.art !== `${VW + C}px`) failures.push(`the art is ${s.art} wide, leaving the bare background beside it under the column`);
+    },
+  },
+
+  {
+    name: 'r5-engine-1',
+    what: 'a strip, and then a toast, put under the header of a padded <body> are seen to at once while a long pass is unfinished',
+    html: page(`
+      html, body { overflow-x: hidden; }
+      body { position: relative; }
+      header { background: #036; color: #fff; padding: 12px 16px; }
+      .promo { background: #c60; color: #fff; padding: 10px 16px; }
+      .toast { position: absolute; top: 60px; left: 50%; width: 180px; margin-left: -90px; background: #222; color: #fff; z-index: 9; }
+      .r { height: 4px; overflow: hidden; font-size: 2px; }`,
+    `<header id="hdr">Site</header><main>${Array.from({ length: 10000 }, (_, i) => `<div class="r">Row ${i}</div>`).join('')}</main>`),
+    async run({ p, cdp, failures }) {
+      // On a slow phone the first pass over this page takes a few seconds.
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      await injectDuofari(p);
+      /** Puts a strip or a toast under the header: milliseconds until it is right, or null after a second. */
+      const within = (change) => p.evaluate(async (change) => {
+        const vw = document.documentElement.clientWidth;
+        let done;
+        if (change === 'strip') {
+          const strip = Object.assign(document.createElement('div'), { className: 'promo', textContent: 'Free shipping today' });
+          document.getElementById('hdr').after(strip);
+          done = () => strip.getBoundingClientRect().right > vw + 1;
+        } else {
+          // Centred against <body>'s padding box, which moves it right as that grows.
+          const toast = Object.assign(document.createElement('div'), { className: 'toast', textContent: 'Saved' });
+          document.getElementById('hdr').after(toast);
+          done = () => Math.abs(toast.getBoundingClientRect().left - (vw / 2 - 90)) < 1;
+        }
+        const t0 = performance.now();
+        while (performance.now() - t0 < 1000) {
+          if (done()) return Math.round(performance.now() - t0);
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        return null;
+      }, change);
+      const strip = await within('strip');
+      const toast = await within('toast');
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      if (strip === null) failures.push('the strip under the header was not extended within a second');
+      if (toast === null) failures.push('the toast sat off-centre for a second');
+    },
+  },
+
+  {
+    name: 'r5-engine-carousel',
+    what: 'the slides of a carousel whose own box stays extended, or that animates, are left alone however many scans follow',
+    html: page(`
+      .carousel-inner { position: relative; overflow: hidden; background: #222; }
+      .carousel-item { display: none; }
+      .carousel-item.active { display: block; }
+      .carousel-item img, .swiper img { display: block; width: 100%; height: 200px; object-fit: cover; }
+      .swiper { margin-top: 12px; animation: breathe 2s ease-in-out infinite alternate; }
+      @keyframes breathe { to { opacity: 0.9; } }`,
+    `<div class="carousel-inner">
+        <div class="carousel-item active"><img id="s1" src="img/hero.jpg" alt=""></div>
+        <div class="carousel-item"><img src="img/photo.jpg" alt=""></div>
+      </div>
+      <div class="swiper"><div class="swiper-slide"><img id="s2" src="img/banner.jpg" alt=""></div></div>
+      <main id="main">${paragraphs(30)}</main>`),
+    async run({ p, failures }) {
+      await injectDuofari(p, { allImages: true });
+      for (let i = 0; i < 4; i++) {
+        await p.evaluate((i) => document.getElementById('main').append(Object.assign(document.createElement('p'), { textContent: `Late ${i}` })), i);
+        await settle(p, 400);
+      }
+      const s = await p.evaluate(() => ['s1', 's2'].map((id) => document.getElementById(id).getAttribute('style')));
+      s.forEach((style, i) => { if (style !== null) failures.push(`slide ${i + 1} was restyled: ${style}`); });
+    },
+  },
+
+  {
+    name: 'r5-engine-2',
+    what: "turning Duofari off or unfolding while a Bootstrap modal is open leaves the modal nothing of Duofari's to write back",
+    // r4-engine-4's page.
+    get html() { return ENGINE.find((c) => c.name === 'r4-engine-4').html; },
+    async run({ p, cdp, failures }) {
+      const read = () => p.evaluate(() => ({
+        padding: getComputedStyle(document.body).paddingRight,
+        margin: getComputedStyle(document.getElementById('bar')).marginRight,
+        text: document.querySelector('p').getBoundingClientRect().right,
+      }));
+      const plain = await read();
+      await injectDuofari(p);
+      await p.evaluate(() => globalThis.openModal());
+      await settle(p, 700);
+      await turnOff(p);
+      await p.evaluate(() => globalThis.closeModal());
+      const closed = await read();
+      if (closed.padding !== plain.padding || closed.margin !== plain.margin || !near(closed.text, plain.text)) {
+        failures.push(`turned off with the modal open, then closed: <body> padding ${closed.padding}, bar margin ${closed.margin}, text ends at ${closed.text}`);
+      }
+      await p.evaluate(() => {
+        globalThis.Duofari.controller.state.settings.enabled = true;
+        globalThis.Duofari.controller.run();
+      });
+      await settle(p, 700);
+      const again = await read();
+      if (again.padding !== `${C}px` || !near(again.text, plain.text)) failures.push(`turned on again: <body> padding ${again.padding}, text ends at ${again.text}`);
+      // Unfolded with the modal open: Duofari stands down; the modal closes; folded again.
+      await p.evaluate(() => globalThis.openModal());
+      await settle(p, 700);
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: 951, height: 543, screenWidth: 466, screenHeight: 678, deviceScaleFactor: 3, mobile: true, screenOrientation: { type: 'landscapePrimary', angle: 90 } });
+      await settle(p, 700);
+      await p.evaluate(() => globalThis.closeModal());
+      await settle(p, 300);
+      const unfolded = await read();
+      if (unfolded.padding !== plain.padding || unfolded.margin !== plain.margin) failures.push(`unfolded with the modal open, then closed: <body> padding ${unfolded.padding}, bar margin ${unfolded.margin}`);
+    },
+  },
+
+  {
+    name: 'r5-engine-video',
+    what: 'a video with controls filling a hero is never re-fitted or grown under the column',
+    html: page(`
+      .hero { position: relative; height: 220px; background: #123; }
+      .hero video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
+      #tinted::before { content: ''; position: absolute; inset: 0; background: linear-gradient(#0003, #0008); }`,
+    `<section class="hero" id="plain"><video controls muted playsinline></video></section>
+      <section class="hero" id="tinted"><video controls muted playsinline></video></section>${paragraphs(20)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const s = await p.evaluate(() => [...document.querySelectorAll('.hero')].map((hero) => {
+        const video = hero.querySelector('video');
+        return { id: hero.id, hero: hero.getBoundingClientRect().right, right: video.getBoundingClientRect().right, style: video.getAttribute('style') || '' };
+      }));
+      for (const h of s) {
+        if (!near(h.hero, VW + C)) failures.push(`#${h.id} not extended (right edge ${h.hero})`);
+        if (!near(h.right, VW)) failures.push(`#${h.id}'s video ends at ${h.right}, its controls under the column`);
+        if (/object-(fit|position)/.test(h.style)) failures.push(`#${h.id}'s video was re-fitted: ${h.style}`);
+      }
     },
   },
 ];
