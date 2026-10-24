@@ -161,7 +161,10 @@
     const props = released.get(rec.el);
     if (!props || !props.delete(prop)) return;
     const attr = `data-bs-${prop}`;
-    // Unless the modal has closed and written it back since.
+    // Only while the lock still holds (it hides <body>'s overflow inline until
+    // the modal closes): once it has let go, nothing writes the copy back,
+    // and it would only travel with copies of the page.
+    if (!document.body || document.body.style.overflow !== 'hidden') return;
     if (rec.el.getAttribute(attr) === (rec.saved.get(prop).value || null)) rec.el.setAttribute(attr, rec.applied.get(prop));
   }
 

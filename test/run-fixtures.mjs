@@ -14,7 +14,7 @@ import { loadPlaywright } from './lib/playwright.mjs';
 import { serve } from './lib/server.mjs';
 import {
   POSES, newDuoContext, orientPage, injectDuofari, snapshot, duofariState, checkInvariants, settle,
-  emulateSafariMinimumScale, probePoints, readPixels, hexColor, cssColor, colorDistance,
+  emulateSafariMinimumScale, probePoints, readPixels, hexColor, cssColor, colorDistance, untilScanned
 } from './lib/duo.mjs';
 import { capturePair, pageBackground, renderPreview } from './lib/preview.mjs';
 
@@ -115,6 +115,7 @@ for (const c of CASES) {
   const shotBefore = await shoot({});
 
   await injectDuofari(page, c.settings || {});
+  await untilScanned(page);
   if (c.spa) {
     await page.evaluate(() => window.navigateTo('/b'));
     await settle(page, 500);
@@ -164,12 +165,21 @@ for (const c of CASES) {
         copy.id = 'clone';
         copy.classList.add('clone');
         document.body.appendChild(copy);
-        await new Promise((r) => setTimeout(r, 50));
-        const result = { marked: copy.hasAttribute('data-duofari'), style: copy.getAttribute('style') };
+        // The observer cleans the copy before any other task runs.
+        await Promise.resolve();
+        const first = { marked: copy.hasAttribute('data-duofari'), style: copy.getAttribute('style') };
+        // A later scan may well extend the copy as a fixed bar of its own;
+        // then what it saves as the copy's originals must be the copy's.
+        await new Promise((r) => setTimeout(r, 500));
+        const rec = globalThis.Duofari.records.get(copy);
+        const saved = rec ? [...rec.saved.values()].map((v) => v.value).join(' ') : '';
+        const result = { first, recorded: !!rec, marked: copy.hasAttribute('data-duofari'), saved };
         copy.remove();
         return result;
       });
-      if (cloned.marked || (cloned.style && /-84px/.test(cloned.style))) failures.push(`clone kept Duofari's styles: ${cloned.style}`);
+      if (cloned.first.marked || (cloned.first.style && /-84px/.test(cloned.first.style))) failures.push(`clone kept Duofari's styles: ${cloned.first.style}`);
+      if (cloned.marked && !cloned.recorded) failures.push("clone carries Duofari's mark but Duofari does not track it");
+      if (/84px/.test(cloned.saved)) failures.push(`clone extended with Duofari's own values saved as its originals: ${cloned.saved}`);
       await settle(page, 450);
     }
 

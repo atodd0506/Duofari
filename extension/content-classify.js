@@ -47,6 +47,7 @@
   const rejected = new WeakMap();
   /** Clippers we couldn't open, keyed to the layout and how far their content reaches. */
   const unopened = new WeakMap();
+  const sweptCarousels = new WeakSet(); // carousels whose insides were reverted
   /** Elements whose extension the page keeps undoing; left alone for this page view. */
   const blocked = new WeakSet();
   D.blocked = blocked;
@@ -474,7 +475,14 @@
    * Owl wrap the slides when they load) is put back.
    */
   function leaveCarousel(el, cs) {
-    if (!isCarousel(el, cs)) return false;
+    if (!isCarousel(el, cs)) {
+      sweptCarousels.delete(el); // a slider torn down at a breakpoint is walked again
+      return false;
+    }
+    // The walk never enters a carousel, so records can only be inside it from
+    // before it became one: sweep each carousel once.
+    if (sweptCarousels.has(el)) return true;
+    sweptCarousels.add(el);
     for (const [inner, rec] of D.records) if (!rec.owner && inner !== el && D.contains(el, inner)) D.revert(inner);
     return true;
   }

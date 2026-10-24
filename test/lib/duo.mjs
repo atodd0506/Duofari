@@ -95,6 +95,25 @@ export async function injectDuofari(page, settings = {}) {
 }
 
 /**
+ * Waits until Duofari has finished its pass over the page. A pass is cut
+ * into short slices that resume a little later, so on a busy machine the
+ * first one can outlast any fixed wait. (Regression cases that act during
+ * an unfinished pass don't call this.)
+ */
+export async function untilScanned(page, timeout = 5000) {
+  await page.evaluate(async (timeout) => {
+    const D = globalThis.Duofari;
+    const state = D && D.controller && D.controller.state;
+    if (!state) return;
+    const t0 = performance.now();
+    while ((state.cursor || state.timer || state.resumeTimer) && performance.now() - t0 < timeout) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }, timeout);
+  await settle(page, 50);
+}
+
+/**
  * Chromium lets a page with horizontal overflow zoom out to fit it, and then
  * stretches the layout viewport (and every fixed element) to the overflow
  * width. Safari on iPhone keeps the minimum scale at 1 for pages with

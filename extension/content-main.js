@@ -55,6 +55,7 @@
     unstable: false,
     observedRoots: new WeakSet(),
     mutationRates: new WeakMap(),
+    styleRates: new WeakMap(),    // the same, for inline style writes (animations)
     lastTextScan: -Infinity,
   };
 
@@ -371,13 +372,13 @@
   };
 
   /** Ignores elements that change many times a second (animations, tickers). */
-  function tooBusy(target) {
+  function tooBusy(target, rates = state.mutationRates) {
     const now = performance.now();
-    let r = state.mutationRates.get(target);
+    let r = rates.get(target);
     if (!r || now - r.since > 1000) {
       if (r && r.mutedUntil > now) return true;
       r = { since: now, count: 0, mutedUntil: 0 };
-      state.mutationRates.set(target, r);
+      rates.set(target, r);
     }
     if (++r.count > 10) {
       r.mutedUntil = now + 5000;
@@ -436,8 +437,10 @@
         relevant = true;
       } else {
         // It may show or move a positioned box in a box Duofari opened up,
-        // which is looked at first on the next scan (see noteAdded).
-        if (state.active) D.noteChanged(t);
+        // which is looked at first on the next scan (see noteAdded). Inline
+        // styles written every frame (animations) would push everything
+        // else out of that short queue.
+        if (state.active && !(m.attributeName === 'style' && tooBusy(t, state.styleRates))) D.noteChanged(t);
         if (m.attributeName !== 'style' && !tooBusy(t)) relevant = true;
       }
     }

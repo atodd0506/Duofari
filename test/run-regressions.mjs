@@ -2050,6 +2050,89 @@ const ENGINE = [
       if (s.style !== null || !near(s.width, VW)) failures.push(`the slide kept ${s.style} (${s.width} px wide)`);
     },
   },
+
+  {
+    name: 'r7-engine-1',
+    what: 'a carousel is swept for records once, not on every pass',
+    html: page(`
+      .row { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; }
+      .row > div { flex: 0 0 80%; height: 120px; background: #ccc; scroll-snap-align: start; }
+      .band { background: #036; color: #fff; padding: 8px 16px; margin-bottom: 8px; }`,
+    `<div class="row"><div>1</div><div>2</div><div>3</div></div>${Array.from({ length: 60 }, (_, i) => `<div class="band">Band ${i}</div>`).join('')}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      await settle(p, 600);
+      const calls = await p.evaluate(async () => {
+        const D = globalThis.Duofari;
+        const contains = D.contains;
+        let n = 0;
+        D.contains = (...args) => { n++; return contains(...args); };
+        for (let i = 0; i < 5; i++) {
+          D.controller.run();
+          await new Promise((r) => setTimeout(r, 350));
+        }
+        D.contains = contains;
+        return { n, records: D.records.size };
+      });
+      if (calls.records < 30) failures.push(`only ${calls.records} records to begin with`);
+      if (calls.n > 0) failures.push(`${calls.n} containment checks in 5 later passes over a carousel already swept`);
+    },
+  },
+
+  {
+    name: 'r7-engine-2',
+    what: 'boxes animating their inline style every frame do not push a toast out of the queue of changes',
+    get html() {
+      return ENGINE.find((c) => c.name === 'r6-engine-1').html.replace('<main>',
+        `${Array.from({ length: 30 }, (_, i) => `<div class="spin" id="spin${i}">·</div>`).join('')}<main>`);
+    },
+    async run({ p, cdp, failures }) {
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      await p.evaluate(() => {
+        const spins = [...document.querySelectorAll('.spin')];
+        const tick = (t) => {
+          for (const [i, el] of spins.entries()) el.style.transform = `translateY(${Math.sin(t / 200 + i) * 2}px)`;
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      await injectDuofari(p);
+      await settle(p, 1500);
+      const ms = await p.evaluate(async () => {
+        const vw = document.documentElement.clientWidth;
+        const toast = document.getElementById('toast');
+        toast.classList.add('on');
+        const t0 = performance.now();
+        while (performance.now() - t0 < 1000) {
+          if (Math.abs(toast.getBoundingClientRect().left - (vw / 2 - 90)) < 1) return Math.round(performance.now() - t0);
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        return null;
+      });
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      if (ms === null) failures.push('the toast sat off-centre for a second');
+    },
+  },
+
+  {
+    name: 'r7-engine-3',
+    what: "turning on again after a Bootstrap modal closed leaves no copy of Duofari's values behind",
+    get html() { return ENGINE.find((c) => c.name === 'r4-engine-4').html; },
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      await p.evaluate(() => globalThis.openModal());
+      await settle(p, 700);
+      await turnOff(p);
+      await p.evaluate(() => globalThis.closeModal());
+      await p.evaluate(() => {
+        globalThis.Duofari.controller.state.settings.enabled = true;
+        globalThis.Duofari.controller.run();
+      });
+      await settle(p, 700);
+      const copies = await p.evaluate(() => [document.body.getAttribute('data-bs-padding-right'), document.getElementById('bar').getAttribute('data-bs-margin-right')]);
+      if (copies[0] !== null || copies[1] !== null) failures.push(`with no modal open, <body> keeps data-bs-padding-right=${copies[0]} and the bar data-bs-margin-right=${copies[1]}`);
+    },
+  },
 ];
 
 const CASES = [...ENGINE, ...LIFECYCLE];

@@ -19,7 +19,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPlaywright } from './lib/playwright.mjs';
 import {
-  POSES, SOURCE_URL, newDuoContext, orientPage, injectDuofari, snapshot, duofariState, checkInvariants, settle, emulateSafariMinimumScale,
+  POSES, SOURCE_URL, newDuoContext, orientPage, injectDuofari, snapshot, duofariState, checkInvariants, settle, emulateSafariMinimumScale, untilScanned
 } from './lib/duo.mjs';
 import { capturePair, pageBackground, renderPreview } from './lib/preview.mjs';
 
@@ -83,6 +83,7 @@ for (const url of urls) {
 
     const t0 = Date.now();
     await injectDuofari(page);
+    await untilScanned(page);
     line.ms = Date.now() - t0;
     // The inline declarations of each element Duofari changed, as it left
     // them, before the checks below give the page's scripts a reason to
