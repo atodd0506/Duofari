@@ -9,9 +9,10 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "npm run test:unit && npm run test:fixtures && npm run test:popup",
+    "test": "npm run test:unit && npm run test:fixtures && npm run test:regressions && npm run test:popup",
     "test:unit": "node --test \"test/unit/*.test.mjs\"",
     "test:fixtures": "node test/run-fixtures.mjs",
+    "test:regressions": "node test/run-regressions.mjs",
     "test:popup": "node test/run-popup.mjs",
     "test:live": "node test/run-live.mjs",
     "xcodeproj": "python3 scripts/gen-xcodeproj.py",
