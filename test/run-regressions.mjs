@@ -1005,6 +1005,260 @@ const ENGINE = [
       if (s.reads > 10) failures.push(`${s.reads} pseudo-element styles read to extend it`);
     },
   },
+
+  {
+    name: 'r3-engine-1',
+    what: 'a band that clips what hangs past its edge stays extended when it holds a band or the lead image',
+    html: page(`
+      .hero { position: relative; overflow: hidden; background: #123; color: #fff; padding-bottom: 16px; }
+      .hero h1 { margin: 0; padding: 16px; }
+      .blob { position: absolute; right: -70px; top: 20px; width: 160px; height: 160px; border-radius: 50%; background: #f80; }
+      .strip { background: #fc0; color: #000; padding: 6px 16px; }
+      .lead { display: block; width: 100%; height: 200px; object-fit: cover; }
+      .bar { position: fixed; bottom: 0; left: 0; right: 0; overflow: hidden; background: #036; color: #fff; z-index: 5; }
+      .bar div { background: #024; padding: 8px 16px; white-space: nowrap; }`,
+    `<section class="hero" id="strip"><span class="blob"></span><div class="strip">Free shipping on all orders</div><h1>Spring sale</h1></section>
+      <section class="hero" id="lead"><span class="blob"></span><h1>Feature</h1><img class="lead" alt="" src="img/banner.jpg"></section>
+      <nav class="bar" id="bar"><div>World Politics Business Technology Science Health Sport Culture Travel</div></nav>${paragraphs(30)}`),
+    async run({ p, failures }) {
+      await p.evaluate(() => Promise.all([...document.images].map((i) => i.decode().catch(() => {}))));
+      await injectDuofari(p);
+      // Each insertion brings another scan.
+      for (let i = 0; i < 3; i++) {
+        await p.evaluate(() => document.body.append(document.createElement('span')));
+        await settle(p, 400);
+      }
+      const s = await p.evaluate(() => {
+        const D = globalThis.Duofari;
+        const rec = D.records.get(document.getElementById('bar'));
+        return { right: ['strip', 'lead', 'bar'].map((id) => document.getElementById(id).getBoundingClientRect().right), lifted: !!(rec && rec.lifted) };
+      });
+      s.right.forEach((right, i) => {
+        if (!near(right, VW + C)) failures.push(`#${['strip', 'lead', 'bar'][i]} not extended after a few scans (right edge ${right})`);
+      });
+      if (!s.lifted) failures.push('fixed #bar not lifted');
+    },
+  },
+
+  {
+    name: 'r3-engine-2',
+    what: 'a class on a <body> that clips cuts no running transition, and no photo broken out on screen shrinks with <body>',
+    html: page(`
+      html, body { overflow-x: hidden; }
+      .bar { position: sticky; top: 0; z-index: 5; background: rgb(0, 0, 255); color: #fff; padding: 12px 16px; transition: background-color .6s linear; }
+      body.scrolled .bar { background: rgb(255, 0, 0); }
+      article { padding: 0 16px; }
+      article p { padding: 0; }
+      figure { margin: 16px 0; }
+      figure img { display: block; width: 100%; height: auto; }`,
+    `<header class="bar" id="bar">Site</header>
+      <article>${paragraphs(30)}<figure><img id="photo" alt="" src="img/photo.jpg"></figure><p id="next">After the photo.</p>${paragraphs(30)}</article>`),
+    async run({ p, failures }) {
+      await p.evaluate(() => document.getElementById('photo').decode());
+      await injectDuofari(p, { breakout: true });
+      await p.evaluate(() => document.getElementById('photo').scrollIntoView({ block: 'center' }));
+      await settle(p, 600);
+      const read = () => p.evaluate(() => {
+        const r = document.getElementById('photo').getBoundingClientRect();
+        return { width: r.width, height: r.height, next: document.getElementById('next').getBoundingClientRect().top };
+      });
+      const seen = await read();
+      if (!near(seen.width, VW + C)) failures.push(`photo not broken out (${seen.width} px wide)`);
+      // A scroll handler marks the page as scrolled; the bar takes 0.6 s to turn red.
+      const mid = await p.evaluate(async () => {
+        document.body.classList.add('scrolled');
+        await new Promise((r) => setTimeout(r, 350));
+        return getComputedStyle(document.getElementById('bar')).backgroundColor;
+      });
+      const [r, , b] = mid.match(/\d+/g).map(Number);
+      if (r > 240 || b < 15) failures.push(`the bar's colour change was cut short: ${mid} 350 ms into 600`);
+      await settle(p, 800);
+      const now = await read();
+      if (!near(now.height, seen.height) || !near(now.next, seen.next)) {
+        failures.push(`photo on screen changed from ${seen.height.toFixed(1)} to ${now.height.toFixed(1)} px tall; the text below moved ${(now.next - seen.next).toFixed(1)} px`);
+      }
+      // A modal library writes <body>'s padding itself, so <body> is reverted
+      // and opened again, and the photo with it.
+      await p.evaluate(() => { document.body.style.paddingRight = '0px'; });
+      await settle(p, 800);
+      const later = await read();
+      if (!near(later.height, seen.height) || !near(later.next, seen.next)) {
+        failures.push(`once <body> was reverted the photo changed from ${seen.height.toFixed(1)} to ${later.height.toFixed(1)} px tall`);
+      }
+    },
+  },
+
+  {
+    name: 'r3-engine-3',
+    what: 'a large page whose positioned <body> clips is walked to the end on a slow phone, then left alone',
+    html: page(`
+      html, body { overflow-x: hidden; }
+      body { position: relative; }
+      header { background: #036; color: #fff; padding: 12px 16px; }
+      .hero { background: linear-gradient(#a00, #600); height: 200px; }
+      .card { padding: 8px 16px; border-bottom: 1px solid #ddd; }`,
+    `<header>Site</header><section class="hero" id="hero"></section>
+      <main>${Array.from({ length: 1500 }, (_, i) => `<div class="card"><h3>Item ${i}</h3><p>Lorem <b>ipsum</b> dolor.</p></div>`).join('')}</main>`),
+    async run({ p, cdp, failures }) {
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      await injectDuofari(p);
+      await settle(p, 3000);
+      const s = await p.evaluate(async () => {
+        const D = globalThis.Duofari;
+        const scan = D.scan;
+        let scans = 0;
+        D.scan = (ctx) => { scans++; return scan(ctx); };
+        await new Promise((r) => setTimeout(r, 2000));
+        D.scan = scan;
+        return { right: document.getElementById('hero').getBoundingClientRect().right, scans };
+      });
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      if (!near(s.right, VW + C)) failures.push(`hero below the header not extended (right edge ${s.right})`);
+      if (s.scans > 1) failures.push(`${s.scans} scans in 2 s of an idle page`);
+    },
+  },
+
+  {
+    name: 'r3-engine-4',
+    what: "art drawn by a pseudo-element of a hero's inner wrapper continues under the column",
+    html: page(`
+      .hero { position: relative; height: 240px; background: #222; color: #fff; }
+      .hero .wrap::before { content: ''; position: absolute; inset: 0; background: url(img/hero.jpg) center / cover; }
+      .hero h1 { position: relative; margin: 0; padding: 16px; }`,
+    `<section class="hero" id="hero"><div class="wrap" id="wrap"><h1>Title</h1></div></section>${paragraphs(20)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const s = await p.evaluate(() => ({
+        hero: document.getElementById('hero').getBoundingClientRect().right,
+        art: getComputedStyle(document.getElementById('wrap'), '::before').width,
+      }));
+      if (!near(s.hero, VW + C)) failures.push(`hero not extended (right edge ${s.hero})`);
+      if (s.art !== `${VW + C}px`) failures.push(`the art is ${s.art} wide, leaving the bare background beside it under the column`);
+    },
+  },
+
+  {
+    name: 'r3-engine-5',
+    what: 'inline transitions (a var() shorthand, a lone duration) are put back exactly when turned off',
+    html: page(`
+      :root { --t: background-color .3s; }
+      .fixed { position: fixed; top: 0; left: 0; right: 0; height: 40px; background: #036; color: #fff; z-index: 3; }
+      .fixed.on { background: #600; }
+      main { padding-top: 48px; }
+      .band { background: #036; color: #fff; padding: 12px 16px; }`,
+    `<header class="fixed" id="lifted" style="transition: var(--t), translate .3s">Fixed</header>
+      <main><div class="band" id="band" style="transition-duration: .3s">Band</div>${paragraphs(40)}</main>`),
+    async run({ p, failures }) {
+      const read = () => p.evaluate(() => ['lifted', 'band'].map((id) => document.getElementById(id).getAttribute('style')));
+      const plain = await read();
+      await injectDuofari(p);
+      // A restyle of the lifted header: Duofari looks for a translate it brings.
+      await p.evaluate(() => document.getElementById('lifted').classList.add('on'));
+      await settle(p, 800);
+      await turnOff(p);
+      const off = await read();
+      off.forEach((attr, i) => { if (attr !== plain[i]) failures.push(`style="${plain[i]}" became "${attr}"`); });
+    },
+  },
+
+  {
+    name: 'r3-engine-7',
+    what: 'a toast pinned in an extended hero still slides in by `right`, or grows by `width`',
+    html: page(`
+      .hero { position: relative; height: 260px; background: #333; color: #fff; }
+      .hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      .hero h1 { position: relative; margin: 0; padding: 16px; }
+      .toast { position: absolute; bottom: 16px; box-sizing: border-box; padding: 6px 12px; background: #fff; color: #000; white-space: nowrap; overflow: hidden; }
+      .slide { right: -260px; width: 220px; transition: right 2s linear; }
+      .slide.show { right: 16px; }
+      .grow { right: 16px; width: 0; transition: width 2s linear; }
+      .grow.show { width: 200px; }`,
+    `<section class="hero" id="hero"><img src="img/banner.jpg" alt=""><h1>Title</h1></section>${paragraphs(20)}`),
+    async run({ p, failures }) {
+      // Where the toast's left edge is halfway through its entrance, which
+      // starts after Duofari has seen it added.
+      const toast = (kind) => p.evaluate(async (kind) => {
+        const t = Object.assign(document.createElement('div'), { className: `toast ${kind}`, textContent: 'Copied to clipboard' });
+        document.getElementById('hero').appendChild(t);
+        await new Promise((r) => setTimeout(r, 500));
+        t.classList.add('show');
+        await new Promise((r) => setTimeout(r, 1000));
+        const left = t.getBoundingClientRect().left;
+        t.remove();
+        return left;
+      }, kind);
+      const plain = { slide: await toast('slide'), grow: await toast('grow') };
+      await injectDuofari(p);
+      for (const kind of ['slide', 'grow']) {
+        const now = await toast(kind);
+        if (Math.abs(now - plain[kind]) > 25) failures.push(`.${kind} toast halfway in at ${now.toFixed(1)}, not ${plain[kind].toFixed(1)}`);
+      }
+    },
+  },
+
+  {
+    name: 'r3-engine-extra-1',
+    what: 'under Auto landscape no picture in a band is rescaled (an image layer, its own background, pseudo-element art)',
+    html: page(`
+      section { position: relative; height: 100px; background: #123; color: #fff; }
+      section h2 { position: relative; margin: 0; padding: 8px 16px; font-size: 16px; }
+      .layer img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      .own { background: #123 url(img/photo.jpg) center / cover no-repeat; }
+      .pseudo::before { content: ''; position: absolute; inset: 0; background: url(img/photo.jpg) center / cover; }`,
+    `<section class="layer" id="layer"><img alt="" src="img/photo.jpg"><h2>Image layer</h2></section>
+      <section class="own" id="own"><h2>Own background</h2></section>
+      <section class="pseudo" id="pseudo"><h2>Pseudo-element art</h2></section>${paragraphs(20)}`),
+    async run({ p, cdp, failures }) {
+      const { POSES, readPixels, colorDistance } = await import('./lib/duo.mjs');
+      const pose = POSES['landscape-right'];
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: pose.viewport.width, height: pose.viewport.height, deviceScaleFactor: 3, mobile: true,
+        screenWidth: pose.screen.width, screenHeight: pose.screen.height, screenOrientation: pose.orientation,
+      });
+      await p.evaluate(() => Promise.all([...document.images].map((i) => i.decode().catch(() => {}))));
+      await settle(p, 400);
+      const ids = ['layer', 'own', 'pseudo'];
+      // Probes across the art of each band, in device pixels (the screen is 3x).
+      const points = ids.flatMap((id, i) => [60, 200, 340, 480, 560].map((x) => ({ id, x: x * 3, y: (i * 100 + 70) * 3 })));
+      // A CDP screenshot leaves the emulated orientation alone.
+      const shoot = async () => Buffer.from((await cdp.send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: 594, height: 300, scale: 1 } })).data, 'base64');
+      const browser = p.context().browser();
+      const plain = await readPixels(browser, await shoot(), points);
+      await injectDuofari(p);
+      const s = await p.evaluate((ids) => ({ reason: globalThis.Duofari.controller.state.reason, right: ids.map((id) => document.getElementById(id).getBoundingClientRect().right) }), ids);
+      if (s.reason !== 'column') failures.push(`not active in landscape (${s.reason})`);
+      s.right.forEach((right, i) => { if (!near(right, 594 + C)) failures.push(`#${ids[i]}'s colour not extended (right edge ${right})`); });
+      const now = await readPixels(browser, await shoot(), points);
+      const moved = new Set(points.filter((pt, i) => colorDistance(plain[i], now[i]) > 24).map((pt) => pt.id));
+      for (const id of moved) failures.push(`#${id}'s picture changed inside the page`);
+    },
+  },
+
+  {
+    name: 'r3-engine-scan',
+    what: 'a band after thousands of elements is reached, and a large page is left alone once walked',
+    html: page(`
+      header, .band { background: #036; color: #fff; padding: 16px; }
+      .r { height: 4px; overflow: hidden; font-size: 2px; }`,
+    `<header>Top</header>${Array.from({ length: 7000 }, (_, i) => `<div class="r">Row ${i}</div>`).join('')}
+      <section class="band" id="deep">Deep band</section>${paragraphs(30)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      await p.evaluate(() => document.getElementById('deep').scrollIntoView());
+      await settle(p, 2500);
+      const s = await p.evaluate(async () => {
+        const D = globalThis.Duofari;
+        const scan = D.scan;
+        let scans = 0;
+        D.scan = (ctx) => { scans++; return scan(ctx); };
+        await new Promise((r) => setTimeout(r, 2000));
+        D.scan = scan;
+        return { right: document.getElementById('deep').getBoundingClientRect().right, scans };
+      });
+      if (!near(s.right, VW + C)) failures.push(`band after 7000 rows not extended (right edge ${s.right})`);
+      if (s.scans > 1) failures.push(`${s.scans} scans in 2 s of an idle page`);
+    },
+  },
 ];
 
 const CASES = [...ENGINE, ...LIFECYCLE];

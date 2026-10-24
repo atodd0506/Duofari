@@ -45,6 +45,9 @@
     lastRun: 0,
     lastScrollY: 0,
     stats: null,
+    cursor: null,
+    resumeTimer: 0,
+    resuming: false,
     flips: [],
     unstable: false,
     observedRoots: new WeakSet(),
@@ -135,11 +138,24 @@
       scrollers,
       observeRoot,
     };
+    // A pass cut short goes on where it stopped; anything else that asks for
+    // a scan meanwhile starts a fresh pass from the top.
+    ctx.resume = state.resuming ? state.cursor : null;
     const stats = D.scan(ctx);
     state.stats = stats;
     state.lastScrollY = globalThis.scrollY;
-    // The rest of a cut-short scan, or elements waiting for a transition to end.
-    if (stats.truncated || stats.waiting) schedule(60);
+    state.cursor = stats.cursor;
+    clearTimeout(state.resumeTimer);
+    if (stats.cursor) {
+      state.resumeTimer = setTimeout(() => {
+        if (state.timer) return; // a fresh pass is on its way
+        state.resuming = true;
+        run();
+        state.resuming = false;
+      }, MIN_INTERVAL);
+    }
+    // Elements waiting for a transition to end.
+    if (stats.waiting) schedule(60);
     updateAllowance(geo.width);
 
     D.guard.enable({

@@ -243,11 +243,14 @@
   // The scan
 
   /**
+   * One slice of a pass over the page. A pass cut short by the budget or the
+   * deadline returns `stats.cursor`; given back as `ctx.resume`, the next
+   * slice goes on from there, so a large page is walked to the end.
    * @param {object} ctx  { layoutWidth, viewportHeight, C, left, right, media, settings, budget, deadline,
-   *                        touchRoots:Set, scrollers:Set, observeRoot(root) }
+   *                        touchRoots:Set, scrollers:Set, observeRoot(root), resume }
    */
   D.scan = function scan(ctx) {
-    const stats = { visited: 0, applied: 0, reverted: 0, truncated: false, waiting: false };
+    const stats = { visited: 0, applied: 0, reverted: 0, truncated: false, waiting: false, cursor: null };
     const body = document.body;
     if (!body) return stats;
     const vw = ctx.layoutWidth;
@@ -258,38 +261,42 @@
     const winBottom = 4 * ctx.viewportHeight;
     const near = s.breakout && s.media && ctx.media ? NEAR : TOL;
     const colorCache = new Map();
-    const layoutKey = `${vw}|${C}|${sides.left}|${sides.right}`;
+    const layoutKey = `${vw}|${C}|${sides.left}|${sides.right}|${!!ctx.media}`;
+    const resume = ctx.resume && ctx.resume.layoutKey === layoutKey && ctx.resume.body === body ? ctx.resume : null;
     // brokenOut: photos reverted from a breakout earlier in this pass.
-    const state = { leadTaken: false, brokenOut: new Set() };
+    const state = resume ? resume.state : { leadTaken: false, brokenOut: new Set() };
     const scrollY = globalThis.scrollY;
 
     if (ctx.touchRoots) {
       ctx.touchRoots.add(document.documentElement);
       ctx.touchRoots.add(body);
+      if (resume) for (const root of resume.touchRoots) ctx.touchRoots.add(root);
     }
 
-    // Whatever Duofari writes into editable content would be saved with it.
-    for (const [el, rec] of D.records) if (!rec.owner && el.isContentEditable) D.revert(el);
+    if (!resume) {
+      // Whatever Duofari writes into editable content would be saved with it.
+      for (const [el, rec] of D.records) if (!rec.owner && el.isContentEditable) D.revert(el);
 
-    // <body> is never walked itself, but it can be a clipper Duofari opened.
-    const bodyRec = D.records.get(body);
-    if (bodyRec && bodyRec.dirty && [body, ...bodyRec.pins.map((p) => p.el)].some(transitioning)) {
-      stats.waiting = true;
-    } else if (bodyRec && !(D.stillValid(bodyRec) && D.repinLatecomers(bodyRec, vw))) {
-      noteReapply(bodyRec);
-      D.revert(body);
-      stats.reverted++;
+      // <body> is never walked itself, but it can be a clipper Duofari opened.
+      const bodyRec = D.records.get(body);
+      if (bodyRec && bodyRec.dirty && [body, ...bodyRec.pins.map((p) => p.el)].some(transitioning)) {
+        stats.waiting = true;
+      } else if (bodyRec && !(D.stillValid(bodyRec) && D.repinLatecomers(bodyRec, vw))) {
+        invalidate(bodyRec, state, stats);
+      }
     }
 
-    const stack = childElements(body).reverse();
+    const stack = resume ? resume.stack : childElements(body).reverse();
     while (stack.length) {
       if (stats.visited >= ctx.budget || (ctx.deadline && performance.now() > ctx.deadline)) {
         stats.truncated = true;
+        stats.cursor = { layoutKey, body, state, stack, touchRoots: ctx.touchRoots || [] };
         break;
       }
       const el = stack.pop();
       const tag = el.localName;
-      if (SKIP.has(tag) || el.hasAttribute('data-duofari-ui') || el.isContentEditable) continue;
+      // A resumed pass holds elements the page may have removed since.
+      if (SKIP.has(tag) || !el.isConnected || el.hasAttribute('data-duofari-ui') || el.isContentEditable) continue;
       stats.visited++;
 
       const r = el.getBoundingClientRect();
@@ -315,10 +322,7 @@
           if (!leaf) descend(stack, el, getComputedStyle(el), r, ctx, vw);
           continue;
         }
-        noteReapply(rec);
-        if (rec.kind === 'breakout') state.brokenOut.add(el);
-        D.revert(el);
-        stats.reverted++;
+        invalidate(rec, state, stats);
         rec = null;
       }
 
@@ -367,7 +371,8 @@
         // there. Everything else keeps its padding box: positioned children,
         // pseudo-elements and icons stay exactly where they were.
         const recipes = scrollsX(el, cs) || carousel ? ['border'] : D.clips(el, cs) ? ['padding', 'border'] : ['border', 'padding'];
-        const done = applyGuarded(el, stats, sides, C, vw, () => D.extendBox(el, 'band', sides, C, { recipes, layoutWidth: vw }));
+        const extend = () => D.extendBox(el, 'band', sides, C, { recipes, layoutWidth: vw, pictures: ctx.media });
+        const done = applyGuarded(el, stats, sides, C, vw, extend, ctx.media);
         if (done) {
           if (cs.position === 'fixed') liftFixed(el, cs);
         } else if (done === null) {
@@ -425,11 +430,12 @@
    * Runs an extension and undoes it if it gave an enclosing scroll container
    * (an app shell, a list) horizontal overflow it didn't have. Returns null
    * if it failed, and false if a clipper around the element couldn't be
-   * opened (that is retried, see ensureClippers).
+   * opened (that is retried, see ensureClippers). Clippers are opened with
+   * the extension's `pictures` (see extendBox).
    */
-  function applyGuarded(el, stats, sides, C, vw, apply) {
+  function applyGuarded(el, stats, sides, C, vw, apply, pictures = true) {
     const width = el.getBoundingClientRect().width;
-    if (!ensureClippers(el, sides, C, stats, vw)) return false;
+    if (!ensureClippers(el, sides, C, stats, vw, pictures)) return false;
     // A layer filling a clipper just opened (a backdrop at inset: 0) grew
     // with it, and reaches into the column already.
     if (Math.abs(el.getBoundingClientRect().width - width) > TOL) return false;
@@ -524,21 +530,25 @@
    * Makes sure every ancestor that would clip `el` reaches into the column
    * too, by extending its padding box. Returns false if one can't be.
    */
-  function ensureClippers(el, sides, C, stats, vw) {
+  function ensureClippers(el, sides, C, stats, vw, pictures) {
     for (const clipper of D.clippingAncestors(el)) {
       const rec = D.records.get(clipper);
       if (rec && rec.recipe === 'padding' && sameSides(rec.sides, sides)) continue;
       if (anchors(getComputedStyle(clipper))) return false;
-      if (rec) D.revert(clipper);
       // What it hides past the edge (a menu that is open) can go away again,
-      // so a failure only holds while its content reaches as far.
-      const key = `${vw}|${C}|${sides.left}|${sides.right}|${clipper.getBoundingClientRect().width}|${clipper.scrollWidth}`;
+      // so a failure only holds while its content reaches as far. (A band's
+      // border extension leaves its padding box as it was.)
+      const key = `${vw}|${C}|${sides.left}|${sides.right}|${pictures}|${clipper.clientWidth}|${clipper.scrollWidth}`;
       if (unopened.get(clipper) === key) return false;
-      const done = D.extendBox(clipper, rec ? rec.kind : 'clipper', sides, C, { recipes: ['padding'], layoutWidth: vw });
-      if (!done) {
-        unopened.set(clipper, key);
-        return false;
+      if (rec) D.revert(clipper);
+      const done = D.extendBox(clipper, rec ? rec.kind : 'clipper', sides, C, { recipes: ['padding'], layoutWidth: vw, pictures });
+      if (!done) unopened.set(clipper, key);
+      if (rec && rec.kind === 'band') {
+        // A band keeps the border it had if it can't be opened, and its lift either way.
+        if (!done) D.extendBox(clipper, 'band', sides, C, { recipes: [rec.recipe], layoutWidth: vw, pictures });
+        if (rec.lifted && D.records.has(clipper)) liftFixed(clipper, getComputedStyle(clipper));
       }
+      if (!done) return false;
       stats.applied++;
     }
     return true;
@@ -546,6 +556,19 @@
 
   function sameSides(a, b) {
     return !!a && a.left === b.left && a.right === b.right;
+  }
+
+  /**
+   * Reverts a record the page has invalidated. Breakouts reverted with it
+   * (its own, or those inside a clipper) are put back in this pass.
+   */
+  function invalidate(rec, state, stats) {
+    noteReapply(rec);
+    for (const [el, r] of D.records) {
+      if (r.kind === 'breakout' && (el === rec.el || (rec.clips && rec.el.contains(el)))) state.brokenOut.add(el);
+    }
+    D.revert(rec.el);
+    stats.reverted++;
   }
 
   function noteReapply(rec) {
