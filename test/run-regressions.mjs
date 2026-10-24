@@ -480,6 +480,97 @@ const LIFECYCLE = [
       if (right > VW + 0.5) failures.push(`text that got longer shows under the column (wrapper clips at ${right})`);
     },
   },
+
+  {
+    name: 'r4-controller-1',
+    what: 'an app shell held still stays held under a swipe once the page puts content in it no wider than the column',
+    html: page(`
+      html, body { height: 100%; overflow: hidden; }
+      #app { height: 100%; overflow-y: auto; }
+      header { background: #036; color: #fff; padding: 16px; }`,
+    `<div id="app"><header>Shell</header><div id="route"></div>${paragraphs(80)}</div>`),
+    async run({ p, cdp, failures }) {
+      await injectDuofari(p);
+      // A client-rendered route brings a box a little wider than the viewport.
+      await p.evaluate(() => { document.getElementById('route').innerHTML = '<div style="width: 420px; height: 20px">Wide</div>'; });
+      await settle(p, 600);
+      const finger = (x) => [{ x, y: 300, id: 1 }];
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: finger(300) });
+      for (let i = 1; i <= 10; i++) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: finger(300 - i * 15) });
+        await p.waitForTimeout(16);
+      }
+      const during = await p.evaluate(() => document.getElementById('app').scrollLeft);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await settle(p, 600);
+      const after = await p.evaluate(() => document.getElementById('app').scrollLeft);
+      if (during || after) failures.push(`a sideways swipe moved the shell to ${during}, then to ${after} once the finger lifted`);
+    },
+  },
+
+  {
+    name: 'r4-controller-2',
+    what: 'price cells edited in place inside an opened wrapper bring no stream of scans, and a line that gets longer is still checked',
+    html: page(`
+      .site { overflow-x: hidden; }
+      header { background: #036; color: #fff; padding: 16px; }
+      #status { white-space: nowrap; padding: 0 16px; }`,
+    `<div class="site" id="site"><header>Markets</header><div id="status">Open</div>
+      ${Array.from({ length: 200 }, (_, i) => `<p>SYM${i} <span class="px">${i}.00</span></p>`).join('')}</div>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const clipRight = () => p.evaluate(() => document.getElementById('site').getBoundingClientRect().right);
+      if (!near(await clipRight(), VW + C)) failures.push('wrapper not opened to begin with');
+      const scans = await p.evaluate(async () => {
+        const D = globalThis.Duofari;
+        const scan = D.scan;
+        let n = 0;
+        D.scan = (ctx) => { n++; return scan(ctx); };
+        // Twenty cells four times a second, each its own element, as React updates them.
+        const cells = [...document.querySelectorAll('.px')];
+        globalThis.ticker = setInterval(() => {
+          for (let i = 0; i < 20; i++) cells[(Math.random() * cells.length) | 0].firstChild.data = (Math.random() * 100).toFixed(2);
+        }, 250);
+        await new Promise((r) => setTimeout(r, 3000));
+        return n;
+      });
+      if (scans > 2) failures.push(`price cells edited in place brought ${scans} scans in 3 s`);
+      await p.evaluate(() => { document.getElementById('status').firstChild.data = 'Closed: https://example.com/a/very/long/path/that/does/not/wrap/at/all'; });
+      await settle(p, 5600);
+      await p.evaluate(() => clearInterval(globalThis.ticker));
+      const right = await clipRight();
+      if (right > VW + 0.5) failures.push(`the longer status shows under the column 5.6 s later (wrapper clips at ${right})`);
+    },
+  },
+
+  {
+    name: 'r4-controller-3',
+    what: 'folding while zoomed in says Duofari waits for the zoom, not that the display is unfolded',
+    html: page('header { background: #036; color: #fff; padding: 16px; }', `<header>Site</header>${paragraphs(20)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const status = () => p.evaluate(async () => {
+        globalThis.Duofari.controller.run();
+        const s = await globalThis.Duofari.controller.status();
+        return `${s.active ? 'active' : 'idle'}, ${s.reason}`;
+      });
+      const unfolded = await orientPage(p, 'unfolded');
+      await settle(p, 600);
+      await unfolded.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
+      await settle(p, 500);
+      const before = await status();
+      const folded = await orientPage(p, 'folded');
+      await folded.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
+      await settle(p, 700);
+      const zoomed = await status();
+      await folded.send('Emulation.setPageScaleFactor', { pageScaleFactor: 1 });
+      await settle(p, 700);
+      const after = await status();
+      if (before !== 'idle, no-column' || zoomed !== 'idle, zoomed' || after !== 'active, column') {
+        failures.push(`unfolded and zoomed in: ${before}; folded while zoomed in: ${zoomed}; zoomed out: ${after}`);
+      }
+    },
+  },
 ];
 
 // The engine: choosing, extending and restoring boxes (content-bleed.js, content-classify.js).

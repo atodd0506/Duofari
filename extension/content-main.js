@@ -26,7 +26,7 @@
   const FLIP_WINDOW = 10000;
   const META_LIMIT = 5;         // viewport meta repairs within META_WINDOW before leaving it to the page
   const META_WINDOW = 10000;
-  const TEXT_QUIET = 5000;      // text changing in one element brings a scan at most this often
+  const TEXT_QUIET = 5000;      // changing text brings a scan at most this often
 
   const state = {
     settings: { ...D.DEFAULTS },
@@ -54,7 +54,7 @@
     unstable: false,
     observedRoots: new WeakSet(),
     mutationRates: new WeakMap(),
-    textScans: new WeakMap(),
+    lastTextScan: -Infinity,
   };
 
   // ---------------------------------------------------------------------------
@@ -88,6 +88,9 @@
       state.pose = pose;
       state.flips = [];
       state.unstable = false;
+      // Zoomed in, the new pose can't be measured, and what kept Duofari idle
+      // in the old one (unfolded, say) may no longer hold.
+      if (geo.zoomed && !state.active) state.geometry = null;
     }
     const site = D.siteState(s, location.hostname);
     const off = !s.enabled ? 'disabled' : site === 'off' ? 'site-disabled' : site === 'excluded' ? 'excluded-site'
@@ -397,7 +400,7 @@
       if (m.type === 'characterData') {
         // Text edited in place (as React updates it) inside an opened clipper.
         const n = m.target;
-        if (state.active && n.nodeType === 3 && D.noteAdded(n) && !textRecently(n.parentNode)) relevant = true;
+        if (state.active && n.nodeType === 3 && D.noteAdded(n) && (relevant || !textRecently())) relevant = true;
         continue;
       }
       if (m.type === 'childList') {
@@ -405,9 +408,9 @@
           if (n.nodeType === 1 && n.hasAttribute('data-duofari-ui')) continue;
           if (n.nodeType === 1) relevant = true;
           // Content added inside a clipper Duofari opened up (text too). Text
-          // that keeps changing in one place (a clock, a live score) is left
-          // for a later scan instead of bringing one each time.
-          if (state.active && (n.nodeType === 1 || n.nodeType === 3) && D.noteAdded(n) && (n.nodeType === 1 || !textRecently(m.target))) {
+          // that keeps changing (a clock, live prices) is left for a later
+          // scan instead of bringing one each time.
+          if (state.active && (n.nodeType === 1 || n.nodeType === 3) && D.noteAdded(n) && (relevant || !textRecently())) {
             relevant = true;
           }
         }
@@ -440,17 +443,25 @@
   });
 
   /**
-   * True if text in `parent` already brought a scan within TEXT_QUIET. The
-   * change is still checked: by the next scan, TEXT_QUIET from now at the latest.
+   * True if text already brought a scan within TEXT_QUIET, in this element or
+   * any other (a live list updates many cells, each on its own). The change
+   * is still checked: by the next scan, which comes TEXT_QUIET after the last
+   * one at the latest.
    */
-  function textRecently(parent) {
+  function textRecently() {
     const now = performance.now();
-    const last = state.textScans.get(parent);
-    if (last !== undefined && now - last < TEXT_QUIET) {
-      if (!state.textTimer) state.textTimer = setTimeout(() => { state.textTimer = 0; schedule(); }, TEXT_QUIET);
+    const wait = state.lastTextScan + TEXT_QUIET - now;
+    if (wait > 0) {
+      if (!state.textTimer) {
+        state.textTimer = setTimeout(() => {
+          state.textTimer = 0;
+          state.lastTextScan = performance.now();
+          schedule();
+        }, wait);
+      }
       return true;
     }
-    state.textScans.set(parent, now);
+    state.lastTextScan = now;
     return false;
   }
 

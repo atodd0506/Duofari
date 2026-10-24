@@ -115,10 +115,15 @@
 
   function updateLock() {
     const want = state.on && state.lock && !zoomed() && state.allowance < 1;
+    // App shells as well, while their sideways overflow is no more than the
+    // column (Duofari's, or a little of the page's added since): as on the
+    // page itself, it stays hidden instead of swiping out and snapping back.
+    const targets = new Set(want ? state.roots : []);
+    if (want) for (const el of state.scrollers) if (shellAllowance(el) === 0) targets.add(el);
     for (const el of [...state.locked.keys()]) {
-      if (!want || !state.roots.has(el) || !el.isConnected) unlockElement(el);
+      if (!targets.has(el) || !el.isConnected) unlockElement(el);
     }
-    if (want) for (const el of state.roots) if (el.isConnected) lockElement(el);
+    for (const el of targets) if (el.isConnected) lockElement(el);
   }
 
   // ---------------------------------------------------------------------------
