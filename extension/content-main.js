@@ -24,6 +24,7 @@
   const SLICE_MS = 12;          // keep each scan short; the rest continues in the next one
   const FLIP_LIMIT = 4;         // on/off changes within FLIP_WINDOW before Duofari stands down
   const FLIP_WINDOW = 10000;
+  const POSE_FREE = new Set(['not-duo', 'reduced-transparency']); // reasons a fold or rotation can't change
   const META_LIMIT = 5;         // viewport meta repairs within META_WINDOW before leaving it to the page
   const META_WINDOW = 10000;
   const TEXT_QUIET = 5000;      // changing text brings a scan at most this often
@@ -89,8 +90,9 @@
       state.flips = [];
       state.unstable = false;
       // Zoomed in, the new pose can't be measured, and what kept Duofari idle
-      // in the old one (unfolded, say) may no longer hold.
-      if (geo.zoomed && !state.active) state.geometry = null;
+      // in the old one (unfolded, say) may no longer hold. Not being a Duo,
+      // and Reduce Transparency, hold in every pose.
+      if (geo.zoomed && !state.active && state.geometry && !POSE_FREE.has(state.geometry.reason)) state.geometry = null;
     }
     const site = D.siteState(s, location.hostname);
     const off = !s.enabled ? 'disabled' : site === 'off' ? 'site-disabled' : site === 'excluded' ? 'excluded-site'

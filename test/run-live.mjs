@@ -148,7 +148,12 @@ for (const url of urls) {
           const ran = styles.get(rec.el) || original;
           const want = {};
           for (const prop of new Set([...Object.keys(original), ...Object.keys(ran), ...Object.keys(now)])) {
-            const saved = rec.applied.has(prop) && now[prop] === `${rec.applied.get(prop)} !important` && rec.saved.get(prop);
+            // Duofari's value, or a scroll lock's copy of it without
+            // !important (Bootstrap's modal helper), which Duofari also puts
+            // back to the original.
+            const applied = rec.applied.has(prop) && rec.applied.get(prop);
+            const echo = applied && now[prop] === applied && /^-?[\d.]+px$/.test(applied) && parseFloat(applied) !== 0;
+            const saved = applied && (now[prop] === `${applied} !important` || echo) && rec.saved.get(prop);
             const back = saved ? saved.value && `${saved.value}${saved.priority ? ' !important' : ''}` : now[prop] !== ran[prop] ? now[prop] : original[prop];
             put(want, prop, saved && back && back.endsWith(' !important') && back !== original[prop] ? original[prop] : back);
           }

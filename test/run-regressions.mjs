@@ -571,6 +571,31 @@ const LIFECYCLE = [
       }
     },
   },
+  {
+    name: 'r5-controller-1',
+    what: 'rotating an ordinary iPhone while zoomed in still says it is not an iPhone Duo',
+    html: page('header { background: #036; color: #fff; padding: 16px; }', `<header>Site</header>${paragraphs(20)}`),
+    async run({ p, failures }) {
+      const cdp = await orientPage(p, 'iphone');
+      await settle(p, 400);
+      await injectDuofari(p);
+      const status = () => p.evaluate(async () => {
+        globalThis.Duofari.controller.run();
+        return (await globalThis.Duofari.controller.status()).reason;
+      });
+      const upright = await status();
+      await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
+      await settle(p, 500);
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 714, height: 370, deviceScaleFactor: 3, mobile: true,
+        screenWidth: 402, screenHeight: 874, screenOrientation: { type: 'landscapePrimary', angle: 90 },
+      });
+      await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
+      await settle(p, 700);
+      const rotated = await status();
+      if (upright !== 'not-duo' || rotated !== 'not-duo') failures.push(`upright: ${upright}; rotated while zoomed in: ${rotated}`);
+    },
+  },
 ];
 
 // The engine: choosing, extending and restoring boxes (content-bleed.js, content-classify.js).
