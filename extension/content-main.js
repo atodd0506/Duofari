@@ -409,9 +409,9 @@
         for (const n of m.addedNodes) {
           if (n.nodeType === 1 && n.hasAttribute('data-duofari-ui')) continue;
           if (n.nodeType === 1) relevant = true;
-          // Content added inside a clipper Duofari opened up (text too). Text
-          // that keeps changing (a clock, live prices) is left for a later
-          // scan instead of bringing one each time.
+          // Content added inside a box Duofari opened up (text too, in a
+          // clipper). Text that keeps changing (a clock, live prices) is left
+          // for a later scan instead of bringing one each time.
           if (state.active && (n.nodeType === 1 || n.nodeType === 3) && D.noteAdded(n) && (relevant || !textRecently())) {
             relevant = true;
           }
@@ -434,8 +434,11 @@
         if (m.attributeName === 'style' && !D.guard.restyled(t, m.oldValue)) continue;
         if (m.attributeName === 'class' || m.attributeName === 'style') D.markDirty(t);
         relevant = true;
-      } else if (m.attributeName !== 'style' && !tooBusy(t)) {
-        relevant = true;
+      } else {
+        // It may show or move a positioned box in a box Duofari opened up,
+        // which is looked at first on the next scan (see noteAdded).
+        if (state.active) D.noteChanged(t);
+        if (m.attributeName !== 'style' && !tooBusy(t)) relevant = true;
       }
     }
     // A head manager may have swapped in a fresh viewport meta.

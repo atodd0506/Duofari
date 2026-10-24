@@ -174,12 +174,6 @@
     return true;
   }
 
-  function childElements(el) {
-    const kids = [...el.children];
-    if (el.shadowRoot) kids.push(...el.shadowRoot.children);
-    return kids;
-  }
-
   function sourceOf(el) {
     return String(el.currentSrc || el.src || el.poster || '');
   }
@@ -254,7 +248,8 @@
    * are looked at again straight away, and the older pass still ends however
    * often the page changes. Once it has, the newer one goes on alone; if the
    * newer one gets to the end first, the older one has nothing left to do.
-   * Until then the newer one puts off most looks for latecomers (see holds).
+   * Until then the newer one looks for latecomers only among what the page
+   * changed (see holds).
    * @param {object} ctx  { layoutWidth, viewportHeight, C, left, right, media, settings, budget, deadline,
    *                        touchRoots:Set, scrollers:Set, observeRoot(root), resume, again }
    */
@@ -279,14 +274,14 @@
     let pass = resume ? resume.pass : null;
     let fresh = resume ? resume.fresh : null;
     let kept = resume ? resume.kept : null;
-    if (!pass) pass = beginPass(body, stats, vw, null);
-    else if (ctx.again) fresh = beginPass(body, stats, vw, pass);
+    if (!pass) pass = beginPass(body, stats, ctx, null);
+    else if (ctx.again) fresh = beginPass(body, stats, ctx, pass);
     let walk = fresh || pass;
     let budget = fresh ? ctx.budget * FRESH_SHARE : ctx.budget;
     let deadline = fresh && ctx.deadline ? performance.now() + slice * FRESH_SHARE : ctx.deadline;
 
     for (;;) {
-      if (!walk.stack.length) {
+      if (finished(walk.stack)) {
         if (!fresh) {
           kept = null;
           break;
@@ -298,7 +293,7 @@
         kept = walk === fresh ? null : pass.roots;
         pass = walk = fresh;
         fresh = null;
-        if (lookLate(pass, vw, stats)) fresh = beginPass(body, stats, vw, pass);
+        if (lookLate(pass, vw, stats)) fresh = beginPass(body, stats, ctx, pass);
         continue;
       }
       if (stats.visited >= budget || (deadline && performance.now() > deadline)) {
@@ -314,16 +309,16 @@
         break;
       }
       const { stack, state } = walk;
-      const el = stack.pop();
+      const el = next(stack);
       const tag = el.localName;
-      // A resumed pass holds elements the page may have removed since.
+      // A resumed pass may be going through a part of the page removed since.
       if (SKIP.has(tag) || !el.isConnected || el.hasAttribute('data-duofari-ui') || el.isContentEditable) continue;
       stats.visited++;
 
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) {
         const cs = getComputedStyle(el);
-        if (cs.display === 'contents' && !isCarousel(el, cs)) pushChildren(stack, el, ctx);
+        if (cs.display === 'contents' && !leaveCarousel(el, cs)) pushChildren(stack, el, ctx);
         continue;
       }
       if (r.bottom < winTop || r.top > winBottom) continue;
@@ -349,7 +344,7 @@
       const rect = el.getBoundingClientRect();
       const touch = edgeState(rect, vw, C, sides, near);
       if (!touch.relevant) {
-        if (touch.overflowReaches(el) && !isCarousel(el, getComputedStyle(el))) pushChildren(stack, el, ctx);
+        if (touch.overflowReaches(el) && !leaveCarousel(el, getComputedStyle(el))) pushChildren(stack, el, ctx);
         continue;
       }
 
@@ -415,7 +410,7 @@
    * unfinished pass it is begun alongside, if any. brokenOut: photos
    * reverted from a breakout earlier in either.
    */
-  function beginPass(body, stats, vw, older) {
+  function beginPass(body, stats, ctx, older) {
     const brokenOut = older ? older.state.brokenOut : new Set();
     const walk = { stack: [], state: { leadTaken: false, brokenOut }, roots: new Set(), owed: older ? new Set() : null };
     // Whatever Duofari writes into editable content would be saved with it.
@@ -425,29 +420,25 @@
     const bodyRec = D.records.get(body);
     if (bodyRec && mustWait(bodyRec)) {
       stats.waiting = true;
-    } else if (bodyRec && !holds(bodyRec, vw, walk)) {
+    } else if (bodyRec && !holds(bodyRec, ctx.layoutWidth, walk)) {
       invalidate(bodyRec, walk.state, stats);
     }
-    walk.stack = childElements(body).reverse();
+    pushChildren(walk.stack, body, ctx);
     return walk;
   }
 
   /**
    * Whether an extended box still holds, with the positioned boxes that
-   * appeared in it since pinned. Looking for those reads the style of
-   * everything inside, so a pass begun while another is unfinished, which
-   * may be every scan, puts that off (in `owed`) until it is on its own,
-   * unless a positioned box was added there.
+   * appeared in it since pinned. Looking for those everywhere in it reads
+   * the style of everything inside, so a pass begun while another is
+   * unfinished, which may be every scan, looks only at what the page added
+   * or restyled there since, and puts the rest off (in `owed`) until it is
+   * on its own.
    */
   function holds(rec, vw, walk) {
-    const added = !!walk.owed && !!rec.added &&
-      [...rec.added].some((n) => n.nodeType === 1 && n.isConnected && /absolute|fixed/.test(getComputedStyle(n).position));
     if (!D.stillValid(rec)) return false;
-    if (walk.owed && !added) {
-      walk.owed.add(rec);
-      return true;
-    }
-    return D.repinLatecomers(rec, vw);
+    if (walk.owed) walk.owed.add(rec);
+    return D.repinLatecomers(rec, vw, { everywhere: !walk.owed });
   }
 
   /**
@@ -465,14 +456,32 @@
     return reverted;
   }
 
-  /** Carousels and sliders, whose slides are never touched. */
+  /**
+   * Carousels and sliders, whose slides are never touched: a slider's
+   * class, or snapping sideways. (Snapping up and down is a page of
+   * sections, often an app shell.)
+   */
   function isCarousel(el, cs) {
-    return el.matches(CAROUSELS) || (!!cs.scrollSnapType && cs.scrollSnapType !== 'none');
+    if (el.matches(CAROUSELS)) return true;
+    const axis = (cs.scrollSnapType || 'none').split(' ')[0];
+    const across = /^(vertical|sideways)/.test(cs.writingMode) ? 'block' : 'inline';
+    return axis === 'x' || axis === 'both' || axis === across;
+  }
+
+  /**
+   * Whether the walk stays out of an element because it is a carousel. A
+   * slide extended before a slider library set one up (Slick, Flickity and
+   * Owl wrap the slides when they load) is put back.
+   */
+  function leaveCarousel(el, cs) {
+    if (!isCarousel(el, cs)) return false;
+    for (const [inner, rec] of D.records) if (!rec.owner && inner !== el && D.contains(el, inner)) D.revert(inner);
+    return true;
   }
 
   /** Visits an element's children, unless it is a carousel or a small scroll container (a tab strip). */
   function descend(walk, el, cs, rect, ctx, vw) {
-    if (isCarousel(el, cs)) return;
+    if (leaveCarousel(el, cs)) return;
     if (isScroller(el, cs)) {
       const pageSized = Math.abs(rect.left) <= TOL && rect.right >= vw - TOL && rect.height >= 0.6 * ctx.viewportHeight;
       if (!pageSized) return;
@@ -483,10 +492,29 @@
     pushChildren(walk.stack, el, ctx);
   }
 
+  /**
+   * Puts an element's children, and then an open shadow root's, on a pass's
+   * stack. A frame goes through the live list of children, so a container
+   * with thousands of them costs nothing more until the walk gets there.
+   */
   function pushChildren(stack, el, ctx) {
-    if (el.shadowRoot && ctx.observeRoot) ctx.observeRoot(el.shadowRoot);
-    const kids = childElements(el);
-    for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i]);
+    if (el.shadowRoot) {
+      if (ctx.observeRoot) ctx.observeRoot(el.shadowRoot);
+      stack.push({ kids: el.shadowRoot.children, i: 0 });
+    }
+    stack.push({ kids: el.children, i: 0 });
+  }
+
+  /** Whether a pass has nothing left to visit, dropping the frames it is done with. */
+  function finished(stack) {
+    for (let top = stack[stack.length - 1]; top && top.i >= top.kids.length; top = stack[stack.length - 1]) stack.pop();
+    return !stack.length;
+  }
+
+  /** The next element of a pass that isn't finished. */
+  function next(stack) {
+    const top = stack[stack.length - 1];
+    return top.kids[top.i++];
   }
 
   function edgeState(rect, vw, C, sides, near) {

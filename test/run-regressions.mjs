@@ -1863,6 +1863,193 @@ const ENGINE = [
       }
     },
   },
+
+  {
+    name: 'r6-engine-1',
+    what: 'a dropdown added to a sticky header with a hairline, and a toast shown by a class in an opened wrapper, are put back at once while a long pass is unfinished',
+    html: page(`
+      header { position: sticky; top: 0; z-index: 5; height: 48px; background: #036; color: #fff; }
+      header::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: rgba(255, 255, 255, .4); }
+      .menu { position: absolute; top: 48px; right: 8px; width: 180px; background: #fff; border: 1px solid #ccc; box-sizing: border-box; }
+      .site { position: relative; overflow-x: hidden; }
+      .hero { background: linear-gradient(#a00, #600); height: 120px; }
+      .toast { display: none; position: absolute; top: 60px; left: 50%; width: 180px; margin-left: -90px; background: #222; color: #fff; z-index: 9; }
+      .toast.on { display: block; }
+      .r { height: 4px; overflow: hidden; font-size: 2px; }`,
+    `<header id="hdr">Site</header><div class="site"><section class="hero"></section><div class="toast" id="toast">Saved</div>
+      <main>${Array.from({ length: 10000 }, (_, i) => `<div class="r">Row ${i}</div>`).join('')}</main></div>`),
+    async run({ p, cdp, failures }) {
+      // On a slow phone the first pass over this page takes a few seconds.
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      await injectDuofari(p);
+      /** Adds the dropdown or shows the toast: milliseconds until it is where the page puts it, or null after a second. */
+      const within = (change) => p.evaluate(async (change) => {
+        const vw = document.documentElement.clientWidth;
+        let done;
+        if (change === 'menu') {
+          // Against the header's padding box, which moves it under the column as that grows.
+          const menu = Object.assign(document.createElement('div'), { className: 'menu', textContent: 'Account · Settings' });
+          document.getElementById('hdr').append(menu);
+          done = () => Math.abs(menu.getBoundingClientRect().right - (vw - 8)) < 1;
+        } else {
+          const toast = document.getElementById('toast');
+          toast.classList.add('on');
+          done = () => Math.abs(toast.getBoundingClientRect().left - (vw / 2 - 90)) < 1;
+        }
+        const t0 = performance.now();
+        while (performance.now() - t0 < 1000) {
+          if (done()) return Math.round(performance.now() - t0);
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        return null;
+      }, change);
+      const menu = await within('menu');
+      const toast = await within('toast');
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      if (menu === null) failures.push('the dropdown sat under the column for a second');
+      if (toast === null) failures.push('the toast sat off-centre for a second');
+    },
+  },
+
+  {
+    name: 'r6-engine-2',
+    what: 'a centred toast appended at the end of a long opened <body> is put back where the page puts it',
+    html: page(`
+      html, body { overflow-x: hidden; }
+      body { position: relative; }
+      header { background: #036; color: #fff; padding: 12px 16px; }
+      .post { padding: 4px 16px; border-bottom: 1px solid #ddd; }
+      .post h3 { margin: 0; font-size: 14px; }
+      .post p { margin: 0; padding: 0; font-size: 12px; }
+      .toast { position: absolute; top: 60px; left: 50%; width: 180px; margin-left: -90px; background: #222; color: #fff; z-index: 9; }`,
+    `<header>Site</header><main>${Array.from({ length: 1000 }, (_, i) => `<div class="post"><h3>Post ${i}</h3><p>Lorem <b>ipsum</b> dolor.</p></div>`).join('')}</main>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      await settle(p, 1500);
+      const left = await p.evaluate(async () => {
+        // More than LATE_SCAN_LIMIT elements come before it.
+        const toast = Object.assign(document.createElement('div'), { className: 'toast', textContent: 'Saved' });
+        document.body.append(toast);
+        await new Promise((r) => setTimeout(r, 1000));
+        return toast.getBoundingClientRect().left;
+      });
+      if (!near(left, VW / 2 - 90)) failures.push(`the toast starts at ${left}, not ${VW / 2 - 90}`);
+    },
+  },
+
+  {
+    name: 'r6-engine-3',
+    what: 'turning the phone with a Bootstrap modal open, and closing it, leaves <body> and the sticky bar extended',
+    // r4-engine-4's page.
+    get html() { return ENGINE.find((c) => c.name === 'r4-engine-4').html; },
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      await p.evaluate(() => globalThis.openModal());
+      await settle(p, 700);
+      // Landscape, with the column on the same side: Duofari reverts everything and extends it again.
+      await orientPage(p, 'landscape-right');
+      await settle(p, 900);
+      const s = await p.evaluate(() => {
+        globalThis.closeModal();
+        return {
+          vw: document.documentElement.clientWidth,
+          text: document.querySelector('p').getBoundingClientRect().right,
+          padding: getComputedStyle(document.body).paddingRight,
+          margin: getComputedStyle(document.getElementById('bar')).marginRight,
+        };
+      });
+      if (!near(s.text, s.vw) || s.padding !== `${C}px` || s.margin !== `-${C}px`) {
+        failures.push(`closed after turning: text ends at ${s.text} of ${s.vw}, <body> padding ${s.padding}, bar margin ${s.margin}`);
+      }
+    },
+  },
+
+  {
+    name: 'r6-engine-4',
+    what: 'each slice of a pass stays short on a page with thousands of rows in one container and a ticking clock',
+    html: page(`
+      html, body { overflow-x: hidden; }
+      body { position: relative; }
+      header { background: #036; color: #fff; padding: 12px 16px; }
+      .r { height: 4px; overflow: hidden; font-size: 2px; }`,
+    `<header>Site <span id="clock"></span></header><main>${Array.from({ length: 50000 }, (_, i) => `<div class="r">Row ${i}</div>`).join('')}</main>
+      <script>let n = 0; setInterval(() => { document.getElementById('clock').innerHTML = '<b>' + ++n + '</b>'; }, 250);</script>`),
+    async run({ p, cdp, failures }) {
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      await injectDuofari(p);
+      const slices = await p.evaluate(async () => {
+        const D = globalThis.Duofari;
+        const scan = D.scan;
+        const out = [];
+        D.scan = (ctx) => {
+          const t0 = performance.now();
+          try { return scan(ctx); } finally { out.push(performance.now() - t0); }
+        };
+        await new Promise((r) => setTimeout(r, 3000));
+        D.scan = scan;
+        return out.sort((a, b) => a - b);
+      });
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      const median = slices[Math.floor(slices.length / 2)];
+      if (!(median < 20)) failures.push(`slices take ${Math.round(median)} ms (median of ${slices.length}), for 12 ms each`);
+    },
+  },
+
+  {
+    name: 'r6-engine-5',
+    what: 'the sections of an app shell that snaps up and down extend, and the shell is held still',
+    html: page(`
+      .shell { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; background: #f4f4f4; }
+      .shell section { height: 100vh; scroll-snap-align: start; color: #fff; padding: 16px; box-sizing: border-box; }
+      .a { background: #036; }
+      .b { background: #603; }`,
+    `<div class="shell" id="shell"><section class="a" id="s1">One</section><section class="b">Two</section></div>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const s = await p.evaluate(() => ({
+        right: document.getElementById('s1').getBoundingClientRect().right,
+        touch: getComputedStyle(document.getElementById('shell')).touchAction,
+      }));
+      if (!near(s.right, VW + C)) failures.push(`the first section ends at ${s.right}`);
+      if (s.touch !== 'pan-y pinch-zoom') failures.push(`the shell's touch-action is ${s.touch}, so it pans sideways`);
+    },
+  },
+
+  {
+    name: 'r6-engine-6',
+    what: 'a picture extended before a slider library wrapped it into a carousel is put back',
+    html: page(`
+      .slider img { display: block; width: 100%; height: 240px; object-fit: cover; }
+      .slick-list { position: relative; overflow: hidden; }
+      .slick-track { display: flex; }
+      .slick-slide { flex: 0 0 auto; }`,
+    `<div class="slider" id="slider"><div><img id="slide" src="img/banner.jpg" alt=""></div></div><main id="main">${paragraphs(30)}</main>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const before = await p.evaluate(() => document.getElementById('slide').getBoundingClientRect().right);
+      if (!near(before, VW + C)) failures.push(`the picture was not extended to begin with (right edge ${before})`);
+      // Slick sets up on load: it wraps the slides and sizes each to the slider.
+      await p.evaluate(() => {
+        const slider = document.getElementById('slider');
+        const list = Object.assign(document.createElement('div'), { className: 'slick-list' });
+        const track = Object.assign(document.createElement('div'), { className: 'slick-track' });
+        for (const slide of [...slider.children]) {
+          slide.className = 'slick-slide';
+          slide.style.width = `${slider.clientWidth}px`;
+          track.append(slide);
+        }
+        list.append(track);
+        slider.append(list);
+        slider.classList.add('slick-slider');
+      });
+      await settle(p, 800);
+      const s = await p.evaluate(() => {
+        const img = document.getElementById('slide');
+        return { style: img.getAttribute('style'), width: img.getBoundingClientRect().width };
+      });
+      if (s.style !== null || !near(s.width, VW)) failures.push(`the slide kept ${s.style} (${s.width} px wide)`);
+    },
+  },
 ];
 
 const CASES = [...ENGINE, ...LIFECYCLE];

@@ -18,6 +18,8 @@
   const ABS_SCAN_LIMIT = HIDDEN_SCAN_LIMIT; // past these the padding recipe isn't used
   const ABS_KEEP_LIMIT = 400;
   const LATE_SCAN_LIMIT = 2000;             // per scan, for positioned boxes that appear later
+  const LATE_QUEUE_LIMIT = 20;              // the latest elements changed in a box, looked at first,
+  const LATE_LOOK_LIMIT = 200;              // visiting at most this many
   const NEAR_PSEUDO_LIMIT = 8;              // children, and grandchildren, whose pseudo-elements are read up front
   const MARK = 'data-duofari';
   D.MARK = MARK;
@@ -65,18 +67,19 @@
     const inline = [...style];
     if (Object.keys(props).some((p) => !rec.saved.has(p) && !style.getPropertyValue(p) && inline.includes(p))) return;
     for (const [prop, value] of Object.entries(props)) {
-      if (!rec.saved.has(prop)) {
-        rec.saved.set(prop, { value: style.getPropertyValue(prop), priority: style.getPropertyPriority(prop) });
-      }
+      const first = !rec.saved.has(prop);
+      if (first) rec.saved.set(prop, { value: style.getPropertyValue(prop), priority: style.getPropertyPriority(prop) });
       style.setProperty(prop, value, 'important');
       // Keep the browser's own serialisation ('0px 0px' reads back as
       // '0px'), so stylesIntact compares like with like.
       rec.applied.set(prop, style.getPropertyValue(prop));
+      if (first) holdCopy(rec, prop);
     }
     rec.el.setAttribute(MARK, JSON.stringify([...rec.saved].map(([p, o]) => [p, o.value, o.priority])));
   }
 
   function restoreStyles(rec) {
+    releaseCopies(rec);
     const style = rec.el.style;
     for (const [prop, orig] of rec.saved) {
       // The page has set this property itself since: its value wins.
@@ -130,23 +133,36 @@
   D.revert = revert;
 
   D.revertAll = function revertAll() {
-    for (const rec of records.values()) releaseCopies(rec);
     for (const el of [...records.keys()]) if (records.has(el)) revert(el);
   };
 
   /**
    * Bootstrap's modal scroll lock saves the inline padding or margin it
    * finds, ours while a box is extended, in a data attribute and writes it
-   * back when the modal closes. With Duofari gone by then, that copy has to
-   * hold the page's own value (or nothing, so the property is removed).
+   * back when the modal closes. So that it writes back what is there by
+   * then, reverting a box points that copy at the page's own value (or
+   * removes it, so the property is removed), and extending the box again
+   * points it at the new value.
    */
+  const released = new WeakMap(); // element -> properties whose copy was pointed back
+
   function releaseCopies(rec) {
     for (const [prop, orig] of rec.saved) {
       const attr = `data-bs-${prop}`;
       if (normalise(rec.el.getAttribute(attr)) !== normalise(rec.applied.get(prop))) continue;
       if (orig.value) rec.el.setAttribute(attr, orig.value);
       else rec.el.removeAttribute(attr);
+      if (!released.has(rec.el)) released.set(rec.el, new Set());
+      released.get(rec.el).add(prop);
     }
+  }
+
+  function holdCopy(rec, prop) {
+    const props = released.get(rec.el);
+    if (!props || !props.delete(prop)) return;
+    const attr = `data-bs-${prop}`;
+    // Unless the modal has closed and written it back since.
+    if (rec.el.getAttribute(attr) === (rec.saved.get(prop).value || null)) rec.el.setAttribute(attr, rec.applied.get(prop));
   }
 
   /** Drops records of elements the page has removed (restoring them in case they come back). */
@@ -316,6 +332,7 @@
     for (let n = parentOf(node); n; n = parentOf(n)) if (n === ancestor) return true;
     return false;
   }
+  D.contains = contains;
 
   /**
    * Ancestors that clip `el`, nearest first, following containing blocks:
@@ -462,13 +479,14 @@
    * padding box (a hero image at inset: 0, a dimming overlay) and are meant
    * to grow with it. `truncated` means the walk stopped before seeing them all.
    * Without `pictures` (Auto landscape) no layer drawing a picture counts as cover.
+   * `from`: where to start instead of el's children (see lookFrom).
    */
-  function absoluteChildren(el, cs, before, { limit = ABS_SCAN_LIMIT, pseudos = false, pictures = true } = {}) {
+  function absoluteChildren(el, cs, before, { from = null, limit = ABS_SCAN_LIMIT, pseudos = false, pictures = true } = {}) {
     const out = { kids: [], statics: [], truncated: false };
     if (!containsAbsolute(cs)) return out;
     const fixedToo = containsFixed(cs);
-    const stack = [...el.children].reverse();
-    if (el.shadowRoot) stack.push(...el.shadowRoot.children);
+    const stack = [...(from || el.children)].reverse();
+    if (!from && el.shadowRoot) stack.push(...el.shadowRoot.children);
     let seen = 0;
     while (stack.length) {
       if (seen >= limit || out.kids.length >= ABS_KEEP_LIMIT) {
@@ -1035,20 +1053,63 @@
   };
 
   /**
-   * Queues a node added inside a clipper that Duofari opened with the
-   * padding recipe, for stillValid to check. True if it was queued.
+   * Queues a node added inside a box Duofari extended with the padding
+   * recipe: an element for each such box around it, whose repinLatecomers
+   * looks at it first, and any node for the nearest clipper, whose
+   * stillValid checks the strip it opened. True if a clipper queued it.
    */
   D.noteAdded = function noteAdded(node) {
     if (!records.size) return false;
+    let clipper = null;
     for (let a = parentOf(node); a; a = parentOf(a)) {
       const rec = records.get(a);
-      if (rec && rec.clips) {
+      if (!rec || rec.recipe !== 'padding') continue;
+      if (node.nodeType === 1) queueLate(rec, node);
+      if (rec.clips && !clipper) {
+        clipper = rec;
         (rec.added = rec.added || new Set()).add(node);
-        return true;
       }
     }
-    return false;
+    return !!clipper;
   };
+
+  /** Queues an element the page restyled (its class, style, hidden…) for the padding-recipe boxes around it. */
+  D.noteChanged = function noteChanged(el) {
+    if (!records.size) return;
+    for (let a = parentOf(el); a; a = parentOf(a)) {
+      const rec = records.get(a);
+      if (rec && rec.recipe === 'padding') queueLate(rec, el);
+    }
+  };
+
+  /**
+   * Queues an element for a box's repinLatecomers, which keeps the latest
+   * LATE_QUEUE_LIMIT: a toast or a menu tends to come after what a feed or
+   * a re-render added. Older ones are left to its look from the start.
+   */
+  function queueLate(rec, el) {
+    const late = (rec.late = rec.late || new Set());
+    late.delete(el);
+    late.add(el);
+    if (late.size > LATE_QUEUE_LIMIT) late.delete(late.values().next().value);
+  }
+
+  /**
+   * Where the positioned boxes `el` lays out at or inside `node` are found:
+   * `node` itself, or the outermost containing block between them (a toast
+   * stack a toast went into), which is one of them if it is positioned.
+   * Null when hidden, or no longer inside.
+   */
+  function lookFrom(el, node) {
+    let from = node;
+    for (let a = parentOf(node); a !== el; a = parentOf(a)) {
+      if (!a) return null;
+      const cs = getComputedStyle(a);
+      if (cs.display === 'none') return null;
+      if (containsAbsolute(cs)) from = a;
+    }
+    return from;
+  }
 
   /** Runs `fn` with an extension taken off for a moment, to measure the page's own layout. */
   function withoutExtension(rec, fn) {
@@ -1072,15 +1133,29 @@
    * out against the grown padding box. When there are new ones, or one now
    * reaches into the column, pin each that moved back where the page's own
    * box puts it, as pinMoved does. Returns false if the box has to be
-   * measured again instead.
+   * measured again instead. What the page added or restyled in the box
+   * since (see noteAdded) is looked at first, latest first, wherever it is,
+   * up to LATE_LOOK_LIMIT elements; with `everywhere`, so is the rest of the
+   * box, up to LATE_SCAN_LIMIT elements from its start.
    */
-  D.repinLatecomers = function repinLatecomers(rec, vw) {
-    if (rec.recipe !== 'padding' || !rec.el.isConnected) return true;
+  D.repinLatecomers = function repinLatecomers(rec, vw, { everywhere = true } = {}) {
+    const changed = rec.late;
+    rec.late = null;
+    if ((!changed && !everywhere) || rec.recipe !== 'padding' || !rec.el.isConnected) return true;
     const cs = getComputedStyle(rec.el);
     if (!containsAbsolute(cs)) return true;
-    const pinned = new Set(rec.pins.map((p) => p.el));
-    const kids = absoluteChildren(rec.el, cs, boxes(rec.el), { limit: LATE_SCAN_LIMIT, pictures: rec.pictures }).kids.filter((k) =>
-      !k.cover && !pinned.has(k.el) && !records.has(k.el) && k.rect.width > 0 && k.rect.height > 0);
+    const before = boxes(rec.el);
+    const look = (from, limit) => absoluteChildren(rec.el, cs, before, { from, limit, pictures: rec.pictures }).kids;
+    const from = changed ? [...changed].reverse().map((node) => node.isConnected && lookFrom(rec.el, node)).filter(Boolean) : [];
+    const found = from.length ? look(new Set(from), LATE_LOOK_LIMIT) : [];
+    if (everywhere) found.push(...look(null, LATE_SCAN_LIMIT));
+    // Each once, leaving out those pinned already.
+    const skip = new Set(rec.pins.map((p) => p.el));
+    const kids = found.filter((k) => {
+      if (k.cover || skip.has(k.el) || records.has(k.el) || !(k.rect.width > 0 && k.rect.height > 0)) return false;
+      skip.add(k.el);
+      return true;
+    });
     if (!kids.some((k) => !rec.seen.has(k.el) || inStrip(k.rect.left, k.rect.right, rec.sides, rec.C, vw))) return true;
     const where = withoutExtension(rec, () => kids.map((k) => {
       const rect = k.el.getBoundingClientRect();
