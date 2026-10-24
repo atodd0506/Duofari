@@ -142,6 +142,19 @@
     }
   }
 
+  /** Running CSS transitions on `el` (unlike animations, they end). */
+  function transitioning(el) {
+    if (!el.getAnimations || typeof CSSTransition === 'undefined') return false;
+    try {
+      return el.getAnimations().some((a) => a instanceof CSSTransition && a.playState === 'running');
+    } catch {
+      return false;
+    }
+  }
+
+  /** An anchor for CSS anchor positioning: boxes placed against its border box would move with it. */
+  const anchors = (cs) => !!cs.anchorName && cs.anchorName !== 'none';
+
   /** "Plain" ancestors an inset photo may break out of: no box of their own. */
   function plainBetween(el, stopAt, cache) {
     let node = D.parentOf(el);
@@ -232,7 +245,7 @@
    *                        touchRoots:Set, scrollers:Set, observeRoot(root) }
    */
   D.scan = function scan(ctx) {
-    const stats = { visited: 0, applied: 0, reverted: 0, truncated: false };
+    const stats = { visited: 0, applied: 0, reverted: 0, truncated: false, waiting: false };
     const body = document.body;
     if (!body) return stats;
     const vw = ctx.layoutWidth;
@@ -244,13 +257,17 @@
     const near = s.breakout && s.media && ctx.media ? NEAR : TOL;
     const colorCache = new Map();
     const layoutKey = `${vw}|${C}|${sides.left}|${sides.right}`;
-    const state = { leadTaken: false };
+    // brokenOut: photos reverted from a breakout earlier in this pass.
+    const state = { leadTaken: false, brokenOut: new Set() };
     const scrollY = globalThis.scrollY;
 
     if (ctx.touchRoots) {
       ctx.touchRoots.add(document.documentElement);
       ctx.touchRoots.add(body);
     }
+
+    // Whatever Duofari writes into editable content would be saved with it.
+    for (const [el, rec] of D.records) if (!rec.owner && el.isContentEditable) D.revert(el);
 
     const stack = childElements(body).reverse();
     while (stack.length) {
@@ -260,7 +277,7 @@
       }
       const el = stack.pop();
       const tag = el.localName;
-      if (SKIP.has(tag) || el.hasAttribute('data-duofari-ui')) continue;
+      if (SKIP.has(tag) || el.hasAttribute('data-duofari-ui') || el.isContentEditable) continue;
       stats.visited++;
 
       const r = el.getBoundingClientRect();
@@ -273,13 +290,21 @@
       let rec = D.records.get(el);
       if (rec && rec.kind === 'pin') continue;
       if (rec) {
-        if (D.stillValid(rec)) {
-          if (rec.recipe === 'padding') D.repinLatecomers(rec, vw);
+        const leaf = rec.kind === 'media' || rec.kind === 'breakout';
+        // Restyled by the page, which started a transition: reverting now
+        // (with transitions off) would cut it short. Wait until it ends.
+        if (rec.dirty && [el, ...rec.pins.map((p) => p.el)].some(transitioning)) {
+          stats.waiting = true;
+          if (!leaf) descend(stack, el, getComputedStyle(el), r, ctx, vw);
+          continue;
+        }
+        if (D.stillValid(rec) && D.repinLatecomers(rec, vw)) {
           if (rec.kind === 'media' && r.top + scrollY < LEAD_DEPTH * ctx.viewportHeight) state.leadTaken = true;
-          if (rec.kind !== 'media' && rec.kind !== 'breakout') descend(stack, el, getComputedStyle(el), r, ctx, vw);
+          if (!leaf) descend(stack, el, getComputedStyle(el), r, ctx, vw);
           continue;
         }
         noteReapply(rec);
+        if (rec.kind === 'breakout') state.brokenOut.add(el);
         D.revert(el);
         stats.reverted++;
         rec = null;
@@ -309,7 +334,7 @@
       }
 
       const key = `${layoutKey}|${rect.width}|${rect.height}`;
-      if (blocked.has(el) || rejected.get(el) === key || animating(el)) {
+      if (blocked.has(el) || rejected.get(el) === key || animating(el) || anchors(cs)) {
         if (!MEDIA.has(tag)) descend(stack, el, cs, rect, ctx, vw);
         continue;
       }
@@ -449,8 +474,10 @@
     if (!s.breakout || el.localName !== 'img') return null;
     // Breakout changes the layout, so only photos that are still entirely
     // below the visible part of the page grow; nothing the reader is looking
-    // at moves.
-    if (rect.top < ctx.viewportHeight) return null;
+    // at moves. A photo reverted from a breakout earlier in this pass (the
+    // page restyled it) is the exception: it is put back before the reader
+    // sees it shrink.
+    if (rect.top < ctx.viewportHeight && !state.brokenOut.has(el)) return null;
     if (rect.width < BREAKOUT_MIN_WIDTH * vw) return null;
     if (!(sides.right ? touch.nearRight : true) || !(sides.left ? touch.nearLeft : true)) return null;
     if (rect.left > NEAR || rect.right < vw - NEAR) return null;
@@ -482,6 +509,7 @@
     for (const clipper of D.clippingAncestors(el)) {
       const rec = D.records.get(clipper);
       if (rec && rec.recipe === 'padding' && sameSides(rec.sides, sides)) continue;
+      if (anchors(getComputedStyle(clipper))) return false;
       if (rec) D.revert(clipper);
       const done = D.extendBox(clipper, rec ? rec.kind : 'clipper', sides, C, { recipes: ['padding'], layoutWidth: vw });
       if (!done) return false;

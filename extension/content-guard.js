@@ -21,6 +21,11 @@
   if (D.controller) return; // already running in this page
 
   const SETTLE_MS = 150;
+  // Marks a locked element with the page's own values, as `data-duofari` does
+  // for extended ones, so copies the page makes of it can be cleaned up.
+  const LOCK = 'data-duofari-lock';
+  D.LOCK = LOCK;
+  const LOCK_PROPS = ['touch-action', 'overscroll-behavior-x'];
 
   const state = {
     on: false,
@@ -35,6 +40,8 @@
     timer: 0,
   };
 
+  const scratch = [document.createElement('div'), document.createElement('div')];
+
   function zoomed() {
     const vv = globalThis.visualViewport;
     return !!vv && vv.scale > state.baseScale * 1.02;
@@ -47,26 +54,45 @@
 
   function lockElement(el) {
     if (state.locked.has(el)) return;
+    // A copy of a locked element (a page snapshot put back) would otherwise
+    // have our lock saved as its own value.
+    if (el.hasAttribute(LOCK)) cleanLock(el);
     const style = el.style;
-    state.locked.set(el, {
-      attr: D.originalStyle ? D.originalStyle(el) : el.getAttribute('style'),
-      touch: [style.getPropertyValue('touch-action'), style.getPropertyPriority('touch-action')],
-      over: [style.getPropertyValue('overscroll-behavior-x'), style.getPropertyPriority('overscroll-behavior-x')],
-    });
+    const values = LOCK_PROPS.map((prop) => [style.getPropertyValue(prop), style.getPropertyPriority(prop)]);
+    state.locked.set(el, { attr: D.originalStyle ? D.originalStyle(el) : el.getAttribute('style'), values });
     style.setProperty('touch-action', 'pan-y pinch-zoom', 'important');
     if (el === document.documentElement) style.setProperty('overscroll-behavior-x', 'none', 'important');
+    el.setAttribute(LOCK, JSON.stringify(values));
   }
 
   function unlockElement(el) {
     const saved = state.locked.get(el);
     if (!saved) return;
     state.locked.delete(el);
-    for (const [prop, [value, priority]] of [['touch-action', saved.touch], ['overscroll-behavior-x', saved.over]]) {
-      if (value) el.style.setProperty(prop, value, priority);
-      else el.style.removeProperty(prop);
-    }
+    restoreLocked(el, saved.values);
     if (D.records && D.records.has(el)) return; // its style attribute is Duofari's to tidy
     D.tidyStyleAttribute(el, saved.attr);
+  }
+
+  function restoreLocked(el, values) {
+    LOCK_PROPS.forEach((prop, i) => {
+      const [value, priority] = values[i] || [];
+      if (value) el.style.setProperty(prop, value, priority);
+      else el.style.removeProperty(prop);
+    });
+    el.removeAttribute(LOCK);
+  }
+
+  /** Puts the page's own values back on a copy of a locked element. */
+  function cleanLock(el) {
+    let values;
+    try {
+      values = JSON.parse(el.getAttribute(LOCK) || '[]');
+    } catch {
+      values = [];
+    }
+    restoreLocked(el, Array.isArray(values) ? values : []);
+    D.tidyStyleAttribute(el, null);
   }
 
   function updateLock() {
@@ -192,6 +218,28 @@
       updateLock();
       state.scrollers.clear();
       state.roots.clear();
+    },
+
+    /** A copy of a locked element, made by the page: strip our lock from it. */
+    cleanClone(el) {
+      if (state.locked.has(el)) return false;
+      cleanLock(el);
+      return true;
+    },
+
+    /**
+     * Whether a style attribute that was `oldValue` differs from the current
+     * one only in the lock (which is written while zooming, outside a run).
+     */
+    onlyLockChanged(el, oldValue) {
+      const [before, now] = scratch;
+      before.setAttribute('style', oldValue || '');
+      now.setAttribute('style', el.getAttribute('style') || '');
+      for (const prop of LOCK_PROPS) {
+        before.style.removeProperty(prop);
+        now.style.removeProperty(prop);
+      }
+      return before.style.cssText === now.style.cssText;
     },
 
     get active() { return state.on; },

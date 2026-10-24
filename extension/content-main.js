@@ -107,7 +107,8 @@
     const stats = D.scan(ctx);
     state.stats = stats;
     state.lastScrollY = globalThis.scrollY;
-    if (stats.truncated) schedule(60);
+    // The rest of a cut-short scan, or elements waiting for a transition to end.
+    if (stats.truncated || stats.waiting) schedule(60);
 
     D.guard.enable({
       baseScale: geo.scale,
@@ -273,7 +274,7 @@
   // Keeping up with the page
 
   const OBSERVE = {
-    childList: true, subtree: true, attributes: true,
+    childList: true, subtree: true, attributes: true, attributeOldValue: true,
     attributeFilter: ['class', 'style', 'src', 'srcset', 'hidden', 'open', 'content', 'aria-expanded'],
   };
 
@@ -294,14 +295,20 @@
   }
 
   const observer = new MutationObserver((mutations) => {
+    // Copies are cleaned up even while Duofari is off: the page may put back
+    // a snapshot it took while Duofari was on (Turbo, PJAX).
+    for (const m of mutations) {
+      for (const n of m.addedNodes) if (n.nodeType === 1 && !n.hasAttribute('data-duofari-ui')) cleanClones(n);
+    }
     if (!state.settings.enabled) return;
     let relevant = false;
     for (const m of mutations) {
       if (m.type === 'childList') {
         for (const n of m.addedNodes) {
-          if (n.nodeType !== 1 || n.hasAttribute('data-duofari-ui')) continue;
-          relevant = true;
-          cleanClones(n);
+          if (n.nodeType === 1 && n.hasAttribute('data-duofari-ui')) continue;
+          if (n.nodeType === 1) relevant = true;
+          // Content added inside a clipper Duofari opened up (text too).
+          if (state.active && (n.nodeType === 1 || n.nodeType === 3) && D.noteAdded(n)) relevant = true;
         }
         if (!relevant) for (const n of m.removedNodes) if (n.nodeType === 1 && !n.hasAttribute('data-duofari-ui')) relevant = true;
         continue;
@@ -314,8 +321,11 @@
       }
       if (D.records.has(t)) {
         // The site restyled something we extended: re-measure it from the
-        // site's own styles instead of keeping stale numbers.
-        if (m.attributeName === 'class' || m.attributeName === 'style') D.markDirty(t);
+        // site's own styles instead of keeping stale numbers. The guard's
+        // touch-action lock, written while zooming, isn't a restyle.
+        if (m.attributeName === 'class' || (m.attributeName === 'style' && !D.guard.onlyLockChanged(t, m.oldValue))) {
+          D.markDirty(t);
+        }
         relevant = true;
       } else if (m.attributeName !== 'style' && !tooBusy(t)) {
         relevant = true;
@@ -325,11 +335,13 @@
     if (relevant) schedule();
   });
 
-  /** Elements the page copied from ones we'd changed (sticky-header clones, loop slides). */
+  /** Elements the page copied from ones we'd changed (sticky-header clones, loop slides, snapshots). */
   function cleanClones(node) {
     if (!node.querySelectorAll) return;
-    if (node.hasAttribute && node.hasAttribute(D.MARK)) D.cleanClone(node);
-    for (const el of node.querySelectorAll(`[${D.MARK}]`)) D.cleanClone(el);
+    for (const el of [node, ...node.querySelectorAll(`[${D.MARK}],[${D.LOCK}]`)]) {
+      if (el.hasAttribute(D.MARK)) D.cleanClone(el);
+      if (el.hasAttribute(D.LOCK)) D.guard.cleanClone(el);
+    }
   }
 
   function observeRoot(root) {
