@@ -102,11 +102,12 @@ const CASES = [
     expect: { title: 'Extended 3 bars and 1 image', detail: 'Safari’s controls take 84 points on the right.', site: true },
   },
   {
-    // Safari's Start Page or an empty tab, with access to all websites.
+    // Safari's Start Page or an empty tab, with access to all websites. A
+    // site set to Deny while all others are allowed looks just the same.
     name: 'start-page',
     tab: { id: 1, url: '' },
     status: null,
-    expect: { title: 'Duofari can’t change this kind of page' },
+    expect: { title: 'Duofari can’t see this page', detail: messages.statusHiddenDetail.message },
   },
   {
     name: 'svg-file',
@@ -121,6 +122,16 @@ const CASES = [
     expect: { title: 'Duofari can’t change this kind of page' },
   },
   {
+    // A PDF at an address without .pdf: there is nothing to run in, and a
+    // reload would only lose the reader's place.
+    name: 'pdf-no-suffix',
+    injectFails: true,
+    tab: { id: 1, url: 'https://arxiv.org/pdf/2401.00001' },
+    status: null,
+    expect: { title: 'Duofari hasn’t run on this page yet', action: 'Apply to This Page' },
+    click: { inject: true, status: null, title: 'Duofari can’t change this kind of page' },
+  },
+  {
     name: 'dark',
     dark: true,
     tab: { id: 1, url: 'https://example.com/story' },
@@ -133,7 +144,7 @@ const CASES = [
 /** Installs a stand-in for the parts of `browser.*` the popup uses. */
 function mockBrowser({ messages, manifest, scenario }) {
   const store = { ...(scenario.settings || {}) };
-  const calls = (globalThis.__calls = { injected: [], requested: [], saved: [], sent: [] });
+  const calls = (globalThis.__calls = { injected: [], requested: [], saved: [], sent: [], reloaded: [] });
   let status = scenario.status;
   let tab = scenario.tab;
   // Host access the user granted for good (all websites unless the case says
@@ -173,7 +184,7 @@ function mockBrowser({ messages, manifest, scenario }) {
         if (!status) throw new Error('Could not establish connection. Receiving end does not exist.');
         return status;
       },
-      reload: async () => {},
+      reload: async (id) => { calls.reloaded.push(id); },
     },
     permissions: {
       contains: async ({ origins = [] }) => origins.every(covered),
@@ -184,7 +195,11 @@ function mockBrowser({ messages, manifest, scenario }) {
       },
     },
     scripting: {
-      executeScript: async ({ files }) => { calls.injected.push(files); return []; },
+      executeScript: async ({ files }) => {
+        calls.injected.push(files);
+        if (scenario.injectFails) throw new Error('Cannot access contents of the page.');
+        return [];
+      },
     },
   };
 }
@@ -279,6 +294,7 @@ for (const scenario of CASES) {
       const expected = manifest.content_scripts[0].js;
       if (JSON.stringify(files) !== JSON.stringify(expected)) fail(`injected ${JSON.stringify(files)}`);
     }
+    if (calls.reloaded.length) fail('reloaded the tab');
     await writeFile(join(OUT, `${scenario.name}-after.png`), await page.screenshot({ fullPage: true }));
   }
 

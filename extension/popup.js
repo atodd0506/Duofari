@@ -209,19 +209,22 @@
       if (!access) {
         showStatus('warn', t('statusNoAccess', 'Duofari can’t see this site yet'),
           t('statusNoAccessDetail', 'Allow it on all websites so it can extend pages as they open.'), allow);
-      } else if (!url || /\.pdf$/i.test(new URL(url).pathname)) {
-        // Safari's Start Page, an empty tab, or a PDF: nothing to run in.
+      } else if (!url) {
+        // Safari's Start Page or an empty tab, or a site the user set to Deny
+        // while allowing all others: Safari hides the address either way.
+        showStatus('off', t('statusHidden', 'Duofari can’t see this page'),
+          t('statusHiddenDetail', 'This is Safari’s Start Page, or a website set to Deny in Settings › Apps › Safari › Extensions › Duofari.'));
+      } else if (/\.pdf$/i.test(new URL(url).pathname)) {
         unsupported();
       } else {
         showStatus('warn', t('statusNotRun', 'Duofari hasn’t run on this page yet'),
           t('statusNotRunDetail', 'Pages opened before Duofari was turned on need a moment, or a reload.'), {
             label: t('actionApply', 'Apply to This Page'),
             run: async () => {
-              const ok = await inject();
-              if (!ok) {
-                try { await api.tabs.reload(tab.id); } catch { /* the user can reload by hand */ }
-              }
-              setTimeout(refreshStatus, 800);
+              // Nothing to run in (a PDF at an address without .pdf, Reader):
+              // reloading would only lose the reader's place.
+              if (await inject()) setTimeout(refreshStatus, 800);
+              else unsupported();
             },
           });
       }

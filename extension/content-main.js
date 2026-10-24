@@ -40,8 +40,10 @@
     vwExcess: 0,
     meta: null,
     metaRewrites: [],
+    href: location.href,
     debug: null,
     timer: 0,
+    textTimer: 0,
     lastRun: 0,
     lastScrollY: 0,
     stats: null,
@@ -77,8 +79,11 @@
     const s = state.settings;
     const geo = D.measureColumn(s);
     // Folding, unfolding and rotating are the user's doing, not the page
-    // being unstable: only on/off changes within one pose count.
-    const pose = `${Math.round(geo.layoutWidth)}|${screen.orientation ? screen.orientation.type : globalThis.orientation}`;
+    // being unstable: only on/off changes within one pose count. The window's
+    // width in points stays put whatever the page does to its viewport meta,
+    // and while zooming.
+    const vv = globalThis.visualViewport;
+    const pose = `${Math.round(vv ? vv.width * vv.scale : geo.layoutWidth)}|${screen.orientation ? screen.orientation.type : globalThis.orientation}`;
     if (pose !== state.pose) {
       state.pose = pose;
       state.flips = [];
@@ -89,9 +94,11 @@
       : state.unstable ? 'unstable' : '';
     if (geo.zoomed) {
       // Keep things as they are until the user zooms back out, unless
-      // Duofari was switched off meanwhile.
+      // Duofari was switched off meanwhile. Not a Duo, unfolded and the
+      // like still hold while zoomed in.
       if (off && state.active) deactivate();
-      if (!state.active) state.reason = off || 'zoomed';
+      const unzoomed = state.geometry && state.geometry.reason !== 'column' ? state.geometry.reason : '';
+      if (!state.active) state.reason = off || unzoomed || 'zoomed';
       return;
     }
     if (state.active && D.guard.drifted()) {
@@ -161,6 +168,7 @@
     D.guard.enable({
       baseScale: geo.scale,
       allowance: state.allowance,
+      column: geo.width,
       lock: s.holdSteady,
       roots: [...touchRoots],
       scrollers: [...scrollers],
@@ -350,7 +358,7 @@
   // Keeping up with the page
 
   const OBSERVE = {
-    childList: true, subtree: true, attributes: true, attributeOldValue: true,
+    childList: true, subtree: true, characterData: true, attributes: true, attributeOldValue: true,
     attributeFilter: ['class', 'style', 'src', 'srcset', 'hidden', 'open', 'content', 'aria-expanded'],
   };
 
@@ -377,9 +385,18 @@
       for (const n of m.addedNodes) if (n.nodeType === 1 && !n.hasAttribute('data-duofari-ui')) cleanClones(n);
     }
     if (!state.settings.enabled) return;
+    // Safari 18 has no Navigation API: a single-page app's pushState shows
+    // only as a new address.
+    if (location.href !== state.href) onNavigate();
     let relevant = false;
     let head = false;
     for (const m of mutations) {
+      if (m.type === 'characterData') {
+        // Text edited in place (as React updates it) inside an opened clipper.
+        const n = m.target;
+        if (state.active && n.nodeType === 3 && D.noteAdded(n) && !textRecently(n.parentNode)) relevant = true;
+        continue;
+      }
       if (m.type === 'childList') {
         for (const n of m.addedNodes) {
           if (n.nodeType === 1 && n.hasAttribute('data-duofari-ui')) continue;
@@ -419,11 +436,17 @@
     if (relevant) schedule();
   });
 
-  /** True if text in `parent` already brought a scan within TEXT_QUIET. */
+  /**
+   * True if text in `parent` already brought a scan within TEXT_QUIET. The
+   * change is still checked: by the next scan, TEXT_QUIET from now at the latest.
+   */
   function textRecently(parent) {
     const now = performance.now();
     const last = state.textScans.get(parent);
-    if (last !== undefined && now - last < TEXT_QUIET) return true;
+    if (last !== undefined && now - last < TEXT_QUIET) {
+      if (!state.textTimer) state.textTimer = setTimeout(() => { state.textTimer = 0; schedule(); }, TEXT_QUIET);
+      return true;
+    }
     state.textScans.set(parent, now);
     return false;
   }
@@ -467,6 +490,7 @@
 
   function onNavigate() {
     // A new page in a single-page app: give it a fresh chance.
+    state.href = location.href;
     state.unstable = false;
     state.flips = [];
     state.metaRewrites = [];

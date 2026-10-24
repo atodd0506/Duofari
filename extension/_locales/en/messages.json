@@ -105,6 +105,13 @@
   "statusUnsupportedDetail": {
     "message": "It works on websites, not on Safari’s own pages, Reader or PDFs."
   },
+  "statusHidden": {
+    "message": "Duofari can’t see this page",
+    "description": "Shown when Duofari is allowed on all websites but Safari hides the tab's address from it."
+  },
+  "statusHiddenDetail": {
+    "message": "This is Safari’s Start Page, or a website set to Deny in Settings › Apps › Safari › Extensions › Duofari."
+  },
   "statusNoAccess": {
     "message": "Duofari can’t see this site yet"
   },

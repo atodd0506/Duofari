@@ -97,6 +97,8 @@ const LIFECYCLE = [
     html: page('header { background: #036; color: #fff; padding: 16px; }', `<header>Site</header>${paragraphs(20)}`)
       .replace('width=device-width, initial-scale=1', 'width=device-width'),
     async run({ p, failures }) {
+      // As in Safari 18, which has no Navigation API.
+      await p.evaluate(() => Object.defineProperty(globalThis, 'navigation', { value: undefined, configurable: true }));
       await injectDuofari(p);
       const meta = () => p.evaluate(() => [...document.querySelectorAll('meta[name=viewport]')].pop().content);
       // Next.js, Helmet, Turbo: the tag we edited no longer equals the one the
@@ -338,6 +340,144 @@ const LIFECYCLE = [
       if (!s.reply || s.reply.reason !== 'unsupported-document' || s.listeners !== 1) {
         failures.push(`status ${JSON.stringify(s.reply)} from ${s.listeners} listener(s)`);
       }
+    },
+  },
+
+  {
+    name: 'r3-lifecycle-1',
+    what: 'text that changes twice in a row inside an opened wrapper is still checked',
+    html: page(`
+      .site { overflow-x: hidden; }
+      header { background: #036; color: #fff; padding: 16px; }
+      #status { white-space: nowrap; padding: 0 16px; }`,
+    `<div class="site" id="site"><header>My Blog</header><div id="status">Ready</div>${paragraphs(40)}</div>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const clipRight = () => p.evaluate(() => document.getElementById('site').getBoundingClientRect().right);
+      if (!near(await clipRight(), VW + C)) failures.push('wrapper not opened to begin with');
+      const status = (text) => p.evaluate((text) => { document.getElementById('status').textContent = text; }, text);
+      await status('Loading');
+      await settle(p, 500);
+      // Too soon after the first change for a scan of its own.
+      await status('Saved to https://example.com/a/very/long/path/that/does/not/wrap/at/all/and/keeps/going');
+      await settle(p, 5600);
+      const right = await clipRight();
+      if (right > VW + 0.5) failures.push(`the long status shows under the column 5.6 s later (wrapper clips at ${right})`);
+    },
+  },
+
+  {
+    name: 'r3-lifecycle-2',
+    what: 'an app shell held still can be scrolled once the page puts wide content of its own in it',
+    html: page(`
+      html, body { height: 100%; overflow: hidden; }
+      #app { height: 100%; overflow-y: auto; }
+      header { background: #036; color: #fff; padding: 16px; }`,
+    `<div id="app"><header>Shell</header><div id="route"></div>${paragraphs(80)}</div>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      // A client-rendered route brings a wide table, with no scroll wrapper of its own.
+      await p.evaluate(() => {
+        document.getElementById('route').innerHTML = `<table style="width: 900px"><tr>${'<td>A value</td>'.repeat(9)}</tr></table>`;
+      });
+      await settle(p, 600);
+      await p.evaluate(() => { document.getElementById('app').scrollLeft = 300; });
+      await settle(p, 600);
+      const x = await p.evaluate(() => document.getElementById('app').scrollLeft);
+      if (!near(x, 300)) failures.push(`shell scrolled to 300 was put back to ${x}`);
+    },
+  },
+
+  {
+    name: 'r3-lifecycle-3',
+    what: 'a page that switches to a desktop viewport whenever something is extended makes Duofari stand down',
+    html: page('header { background: #036; color: #fff; padding: 16px; }', `<header>Site</header>${paragraphs(20)}
+      <script>
+        const meta = document.querySelector('meta[name=viewport]');
+        globalThis.toggles = 0;
+        setInterval(() => {
+          const widened = !!document.querySelector('[data-duofari]');
+          if (widened === /width=600/.test(meta.content)) return;
+          meta.content = widened ? 'width=600, initial-scale=0.6367' : 'width=device-width, initial-scale=1';
+          globalThis.toggles++;
+        }, 300);
+      </script>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      await settle(p, 6000);
+      const s = await p.evaluate(async () => ({ ...(await globalThis.Duofari.controller.status()), toggles: globalThis.toggles }));
+      await settle(p, 2000);
+      const more = (await p.evaluate(() => globalThis.toggles)) - s.toggles;
+      if (s.reason !== 'unstable' || more) failures.push(`after 6 s: active ${s.active}, reason ${s.reason}; the page switched its meta ${more} more time(s) in the next 2 s`);
+    },
+  },
+
+  {
+    name: 'r3-lifecycle-4',
+    what: 'zooming in keeps the reason Duofari is idle (unfolded, not an iPhone Duo)',
+    html: page('header { background: #036; color: #fff; padding: 16px; }', `<header>Site</header>${paragraphs(20)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const reason = () => p.evaluate(async () => {
+        globalThis.Duofari.controller.run();
+        return (await globalThis.Duofari.controller.status()).reason;
+      });
+      for (const [pose, expected] of [['unfolded', 'no-column'], ['iphone', 'not-duo']]) {
+        const cdp = await orientPage(p, pose);
+        await settle(p, 600);
+        const plain = await reason();
+        await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
+        await settle(p, 500);
+        const zoomed = await reason();
+        if (plain !== expected || zoomed !== expected) failures.push(`${pose}: reason ${plain}, and ${zoomed} once zoomed in`);
+        await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: 1 });
+        await settle(p, 300);
+      }
+    },
+  },
+
+  {
+    name: 'r3-lifecycle-7',
+    what: 'without the Navigation API, a page rewriting the viewport meta is left to it after five repairs, until its next route',
+    html: page('header { background: #036; color: #fff; padding: 16px; }', `<header>Site</header>${paragraphs(20)}`)
+      .replace('width=device-width, initial-scale=1', 'width=device-width'),
+    async run({ p, failures }) {
+      await p.evaluate(() => Object.defineProperty(globalThis, 'navigation', { value: undefined, configurable: true }));
+      await injectDuofari(p);
+      const meta = () => p.evaluate(() => [...document.querySelectorAll('meta[name=viewport]')].pop().content);
+      const rewrite = (path) => p.evaluate((path) => {
+        document.querySelector('meta[name=viewport]').setAttribute('content', 'width=device-width');
+        if (path) history.pushState({}, '', path);
+      }, path);
+      for (let i = 0; i < 6; i++) {
+        await rewrite(null);
+        await settle(p, 200);
+      }
+      const insisted = await meta();
+      if (insisted !== 'width=device-width') failures.push(`a sixth rewrite within 10 s was repaired too ("${insisted}")`);
+      // A client-side route (history.pushState) starts afresh.
+      await rewrite('/next');
+      await settle(p, 300);
+      const routed = await meta();
+      if (!/minimum-scale=1/.test(routed)) failures.push(`on the next route the meta is "${routed}"`);
+    },
+  },
+
+  {
+    name: 'r3-engine-6',
+    what: 'text edited in place inside an opened wrapper (as React updates it) is checked',
+    html: page(`
+      .wrap { overflow-x: hidden; }
+      .wrap header { background: #036; color: #fff; padding: 16px; }`,
+    `<div class="wrap" id="text"><header>Text</header><p id="link">Short</p></div>${paragraphs(10)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const clipRight = () => p.evaluate(() => document.getElementById('text').getBoundingClientRect().right);
+      if (!near(await clipRight(), VW + C)) failures.push('wrapper not opened to begin with');
+      await p.evaluate(() => { document.getElementById('link').firstChild.data = 'https://example.com/a/very/long/path/that/never/breaks/anywhere/at/all'; });
+      await settle(p, 800);
+      const right = await clipRight();
+      if (right > VW + 0.5) failures.push(`text that got longer shows under the column (wrapper clips at ${right})`);
     },
   },
 ];

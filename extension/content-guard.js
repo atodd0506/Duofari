@@ -33,6 +33,7 @@
     lock: true,
     baseScale: 1,
     allowance: 0,          // horizontal scroll the page had before Duofari (px)
+    column: 0,             // the most Duofari's extensions can widen an app shell by (px)
     locked: new Map(),     // element -> saved inline touch-action / overscroll values
     roots: new Set(),      // elements that should carry the touch-action lock
     scrollers: new Set(),  // app shells that scroll instead of the document
@@ -130,6 +131,16 @@
     return Math.min(max, Math.max(min, x));
   }
 
+  /**
+   * An app shell's own sideways range. Duofari widens it by the column at
+   * most, so wider overflow is content the page added since it was
+   * registered (a wide table on a later route) and stays reachable.
+   */
+  function shellAllowance(el) {
+    const overflow = el.scrollWidth - el.clientWidth;
+    return overflow > state.column + 1 ? overflow : 0;
+  }
+
   function settle() {
     state.timer = 0;
     if (!state.on || zoomed()) return;
@@ -141,7 +152,7 @@
     if (Math.abs(dx) >= 0.5) scrollByInstant(globalThis, -dx);
     for (const el of state.scrollers) {
       if (!el.isConnected) { state.scrollers.delete(el); continue; }
-      const ex = el.scrollLeft - clampX(el.scrollLeft, 0);
+      const ex = el.scrollLeft - clampX(el.scrollLeft, shellAllowance(el));
       if (Math.abs(ex) >= 0.5) scrollByInstant(el, -ex);
     }
   }
@@ -164,7 +175,7 @@
     state.lastScroll = now;
     const drifted = isRoot
       ? Math.abs(globalThis.scrollX - clampX(globalThis.scrollX, state.allowance)) >= 0.5
-      : Math.abs(t.scrollLeft - clampX(t.scrollLeft, 0)) >= 0.5;
+      : Math.abs(t.scrollLeft - clampX(t.scrollLeft, shellAllowance(t))) >= 0.5;
     if (!drifted) return;
     if (idle && state.touches === 0) {
       // A programmatic jump (focus, anchor, find): put it back right away.
@@ -208,9 +219,10 @@
       return state.on && !zoomed() && Math.abs(globalThis.scrollX - clampX(globalThis.scrollX, state.allowance)) >= 0.5;
     },
 
-    enable({ baseScale = 1, allowance = 0, lock = true, roots = [], scrollers = [] } = {}) {
+    enable({ baseScale = 1, allowance = 0, column = 0, lock = true, roots = [], scrollers = [] } = {}) {
       state.baseScale = baseScale;
       state.allowance = allowance;
+      state.column = column;
       state.lock = lock;
       state.roots = new Set(roots);
       for (const el of scrollers) state.scrollers.add(el);
