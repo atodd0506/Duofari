@@ -259,27 +259,46 @@ for example a hero `<img>` inside a header.
 
 Constants: `TOL = 1.5` px ("touches the edge"), `NEAR = 48` px, `MIN_MEDIA_HEIGHT
 = 100` px, `BREAKOUT_MIN_WIDTH = 0.8`, `OVERLAY_HEIGHT = 0.9`, `LEAD_DEPTH = 1.5`
-viewport heights.
+viewport heights, `FRESH_SHARE = 0.25` of a slice.
 
 **The walk.**
 
 - **Budget and passes.** A pass over the page runs in slices of at most 6,000
   visits and 12 ms each (`SCAN_BUDGET`, `SLICE_MS` in `content-main.js`). A
-  slice cut short returns a cursor (`stats.cursor`): the remaining stack, the
-  pass state (whether the lead image is taken, and which breakouts were
-  reverted in this pass), the layout key, `<body>` and the touch roots found
-  so far. The controller gives it back as `ctx.resume` `MIN_INTERVAL` later
-  (§2.7), and the pass goes on where it stopped, skipping elements the page
-  has removed meanwhile. The cursor is used only while the layout key (layout
-  width, `C`, side and the images flag) and `<body>` are unchanged. Any other
-  trigger starts a fresh pass from the top. The debug badge shows "partial"
-  while a slice was cut short.
-- **Start of a pass.** A fresh pass first reverts any record on an element
-  that has become editable (`isContentEditable`): whatever Duofari writes
-  into editable content would be saved with it. `<body>` is never walked
-  itself, but it can be a clipper Duofari opened, so its record is then
-  checked like any other (§2.3, Re-checking). Both happen once per pass, not
-  once per slice.
+  pass keeps a stack of frames. Each frame is a container's live list of
+  children (an open shadow root's come after them) and a position in it, so
+  descending into a container costs nothing until the walk gets there. A
+  slice cut short returns a cursor (`stats.cursor`). It holds each
+  unfinished pass, with its stack, its state (whether the lead image is
+  taken, and which breakouts were reverted) and the touch roots it found so
+  far, and the layout key and `<body>`. The controller gives the cursor back
+  as `ctx.resume` on every run (§2.7), and its resume timer runs one
+  `MIN_INTERVAL` later, so the pass goes on where it stopped. It goes on by
+  position and skips elements that are no longer in the document. Children
+  the page removed before that position shift the rest, and the pass that
+  the removal brings covers them.
+- **Two passes at once.** Any other run while a pass is unfinished (a
+  mutation, a scroll, a load) starts a new pass from the top at once,
+  alongside the old one. In each slice the newer pass walks first, for a
+  quarter (`FRESH_SHARE`) of the slice's visits and time. In the slice it
+  begins in, that time counts from after its start (`beginPass`). The older
+  pass then has the rest of the visits, and at least the other three quarters
+  of the slice's time from when it takes over, so a slice can run past
+  `SLICE_MS` by about as long as the newer pass's start took. A further
+  request replaces an unfinished newer pass. When the older pass ends, the
+  newer one carries on alone. If the newer one reaches the end first, the
+  older one is dropped. Both share the set of reverted breakouts. The guard
+  gets the touch roots of both, and those of an older pass that ended stay
+  until the newer one ends. The cursor is used only while the layout key
+  (layout width, `C`, side and the images flag) and `<body>` are unchanged.
+  Reverting everything (turning off, a geometry change, a relayout) drops
+  both passes. The debug badge shows "partial" while a slice was cut short.
+- **Start of a pass.** Every pass, a newer one included, starts
+  (`beginPass`) by reverting any record on an element that has become
+  editable (`isContentEditable`): whatever Duofari writes into editable
+  content would be saved with it. `<body>` is never walked itself, but it can
+  be a clipper Duofari opened, so its record is then checked like any other
+  (§2.3, Re-checking). Both happen once per pass, not once per slice.
 - **Window.** Elements that end more than 2 viewport heights above the top of
   the visible area, or start more than 4 viewport heights below it, are
   skipped. A scroll of more than half a viewport since the last scan schedules
@@ -310,8 +329,9 @@ viewport heights.
 - **Already extended.** An element with a record is re-checked first (§2.3,
   Re-checking). If it still holds, it is entered (media and breakouts have
   nothing to enter). If not, it is reverted and classified again on the spot.
-  A record the page restyled while the element or one of its pins runs a CSS
-  transition is left as it is until the transition ends.
+  A record the page restyled is left as it is, and entered, while the
+  element, one of its pins or (in a clipper) anything extended inside it
+  runs a CSS transition (§2.3, Re-checking).
 - **Left as they are, but entered:** boxes that already reach `C` past the edge
   (the site's own `100vw`, or art that grew with an extended parent), elements
   rejected earlier in the same layout (with the same images flag) at the same
@@ -350,23 +370,32 @@ off.
 
 A carousel is an element matching a list of common slider classes (Swiper,
 Slick, Splide, Embla, Glide, Flickity, Owl, Keen, Bootstrap and FlexSlider,
-`[data-carousel]`) or one with `scroll-snap-type`. Its band background may
-extend. When the walk classifies a carousel, it does not descend into it,
-whether or not the band extended. A later scan does enter it like any other
-box when its record still holds, or when it is passed over before
-classification (rejected or blocked earlier, animating, an anchor, or
-already reaching into the column), and slides inside can then be extended.
+`[data-carousel]`), or one that snaps sideways: `scroll-snap-type` on `x`,
+`both` or `inline` (`block` under a vertical or sideways writing mode). Its
+band background may extend, with the border recipe. The walk never enters a
+carousel, on any scan and by any path (`display: contents`, overflow that
+reaches the edge, a box that is passed over or already extended), so its
+slides are never touched. The first time the walk meets a carousel, it
+reverts whatever Duofari extended inside it before it became one, except
+boxes pinned by an extended box outside it: Slick, Flickity and Owl wrap the
+slides when they load. Each carousel is swept once, until it stops being a
+carousel (a slider torn down at a breakpoint is walked again).
 
 **Scroll containers.** The walk does not descend into an element that actually
 scrolls (overflow `auto` or `scroll` with content larger than the box), so
-carousels, tab strips and code blocks keep their own layout. The exception is
-a page-sized scroller: full width and at least 0.6 viewport heights tall. That
-is an app shell scrolling instead of the document. Duofari walks into it. If
+carousels, tab strips and code blocks keep their own layout. (A scroller that
+isn't a carousel and whose box stops short of the edge is still entered when
+its content reaches the edge, see Edge tests.) The exception is a page-sized
+scroller: full width and at least 0.6 viewport heights tall. That is an app
+shell scrolling instead of the document. Duofari walks into it. If
 it scrolls only vertically, Duofari also registers it with the guard so it is
 held still too (§2.5). One that scrolls sideways itself, such as a page-sized
-kanban board, keeps its own scroll position. Elements on the spine whose
-computed overflow is `auto` or `scroll` but which do not scroll sideways are
-collected as **touch roots** for the guard, together with `html` and `body`.
+kanban board, keeps its own scroll position. A shell that snaps up and down
+(`scroll-snap-type: y`) is not a carousel: it is entered, registered and
+touch-locked like any other, and its sections extend. Elements on the spine
+whose computed overflow is `auto` or `scroll` but which do not scroll
+sideways are collected by each pass as **touch roots** for the guard,
+together with `html` and `body`.
 
 **Clipping ancestors.** Before anything is extended, every ancestor that would
 clip it gets the padding recipe, so the clip reaches into the column too.
@@ -424,7 +453,9 @@ Media are covered in §2.4.
 
 Constants: `EPS = 0.75` px, `EDGE_EPS = 1.25` px, `HIDDEN_SCAN_LIMIT = 12000`
 nodes, `ABS_SCAN_LIMIT = 12000` nodes, `ABS_KEEP_LIMIT = 400` positioned
-boxes, `LATE_SCAN_LIMIT = 2000` nodes, `NEAR_PSEUDO_LIMIT = 8` children.
+boxes, `LATE_SCAN_LIMIT = 2000` nodes, `LATE_QUEUE_LIMIT = 20` elements per
+box, `LATE_LOOK_LIMIT = 200` elements, `NEAR_PSEUDO_LIMIT = 8` children (and
+8 grandchildren).
 
 **Bookkeeping.** Every change is an inline `!important` declaration. Inline
 `!important` beats ordinary site CSS and author `!important` utilities, and it
@@ -442,13 +473,30 @@ included.
   couldn't be put back on its own. The unchanged geometry then fails
   verification, and the element is left alone.
 - **Exact restore.** Reverting puts each property back, or removes it. A
-  property the page has set itself since (it no longer holds Duofari's
-  `!important` value) keeps the page's value. Then `tidyStyleAttribute`
-  compares declarations: if they match the page's original
-  attribute, the original string is written back byte for byte. If the page had
-  no `style` attribute and nothing is left, the attribute is removed. The
-  attribute is read first, which flushes the engine's lazily serialised inline
-  style; removing it while that is pending can leave `style=""` behind.
+  property the page has set itself since keeps the page's value. A property
+  still holds Duofari's value when it reads the same with `!important`, or
+  without it when the value is a single non-zero `px` length (`ours()`).
+  Such a value is an echo of the computed style, not one of the page's own.
+  Scroll locks write these, for example Bootstrap's modal scroll-bar helper
+  on `<body>`'s `padding-right` and a `.sticky-top`'s `margin-right`. An echo
+  doesn't invalidate the record, and reverting puts the page's original
+  back. A zero, a keyword or any other value is the page's own and is kept.
+  Then `tidyStyleAttribute` compares declarations: if they match the page's
+  original attribute, the original string is written back byte for byte. If
+  the page had no `style` attribute and nothing is left, the attribute is
+  removed. The attribute is read first, which flushes the engine's lazily
+  serialised inline style; removing it while that is pending can leave
+  `style=""` behind.
+- **Bootstrap's copies.** Bootstrap's modal scroll lock also saves the
+  inline value it finds (Duofari's, while the box is extended) in a
+  `data-bs-<property>` attribute, and writes it back when the modal closes.
+  Every revert points such a copy that holds Duofari's applied value at the
+  page's original value, or removes it when there was none. When Duofari
+  extends the element again while the lock still holds (`<body>`'s inline
+  `overflow` is `hidden`) and the copy is still as Duofari left it, the copy
+  is pointed at the new value. The modal then writes back Duofari's value,
+  an echo, if the box is extended when it closes, and the page's own value
+  otherwise.
 - **Clone marks.** A changed element carries `data-duofari`, holding the saved
   originals as JSON (`[[property, value, priority], …]`). When the page copies
   an element (a sticky-header clone, a carousel loop slide), the copy carries
@@ -505,20 +553,21 @@ image):
   cover layer fills the padding box and may grow with it:
   - an absolutely positioned child whose left and right edges match the
     padding box within 1.5 px, and which is either an `<img>` or `<video>`
-    with `object-fit: cover` or `fill`, or a box of background art with no
-    text and nothing interactive (a tint, slides, a parallax backdrop). In
-    such a box every background layer, its own and its descendants', must
-    scale with the box, and every picture inside must be a cover-fitted
-    `<img>` or `<video>` that fills the layer edge to edge. A `canvas` or
-    `svg` rules it out;
+    with `object-fit: cover` or `fill` that isn't interactive (a
+    `video[controls]` never is a cover layer), or a box of background art
+    with no text and nothing interactive (a tint, slides, a parallax
+    backdrop). In such a box every background layer, its own and its
+    descendants', must scale with the box, and every picture inside must be a
+    cover-fitted `<img>` or `<video>` that fills the layer edge to edge. A
+    `canvas` or `svg` rules it out;
   - a positioned `::before`/`::after` with empty content (`""`) whose
     backgrounds scale with the box, at `left` 0 and as wide as the padding
     box (within 1.5 px). The element's own two count, and so do those of its
     first `NEAR_PSEUDO_LIMIT` direct children that aren't containing blocks
-    themselves (`.hero .wrap::before`). The pseudo-elements of the other
-    boxes in between (deeper descendants, and children past the first
-    `NEAR_PSEUDO_LIMIT`) are read only when the padding recipe is tried, and
-    don't decide the recipe.
+    themselves, and of the first `NEAR_PSEUDO_LIMIT` such children of those
+    (`.hero .wrap::before`, inside a container too). The pseudo-elements of
+    the other boxes in between are read only when the padding recipe is
+    tried, and don't decide the recipe.
 
   A layer or pseudo-element that draws a positioned `no-repeat` image (an
   icon, a badge, a play button drawn as a background) is not a cover layer.
@@ -584,16 +633,34 @@ to its current pixel offset. Its visible part stays put, and the column shows
 the art the crop was hiding, pixel for pixel. Without enough cropped art, a
 cover layer with `object-fit: fill` is
 switched to `cover`, so it is re-cropped rather than stretched. Other cover
-layers simply grow with the box.
+layers simply grow with the box. A `<video>` with controls is never a cover
+layer: it is pinned back like other positioned foreground, and its
+`object-position` and `object-fit` are never set.
 
 **Menus that open later.** A positioned child that appears after a box was
 extended with the padding recipe is laid out against the grown padding box. A
 search panel, a toast or a menu could land under the column. Whenever such a
-record is re-checked, `repinLatecomers` looks at the box's positioned
-children that aren't cover layers or pinned already, walking at most
-`LATE_SCAN_LIMIT` nodes. When one of them is new, or reaches into the column,
-Duofari takes the extension off for a moment and measures where the page's
-own box puts each of them, `left` and width included.
+record is re-checked, `repinLatecomers` looks for the box's positioned
+children that aren't cover layers or pinned already:
+
+- The controller queues elements the page adds inside any padding-recipe box
+  (`noteAdded`), and the targets of attribute changes on elements Duofari
+  hasn't changed (`noteChanged`: `class`, `style`, `src`, `srcset`,
+  `hidden`, `open` and `aria-expanded`, §2.7), for every such box around
+  them. Each box keeps the latest `LATE_QUEUE_LIMIT`.
+- `repinLatecomers` looks at those first, newest first, visiting at most
+  `LATE_LOOK_LIMIT` elements. It starts at each one, or at the outermost
+  containing block between it and the box (a toast stack a toast went into).
+- On a full look, which a pass on its own makes, it then walks the box from
+  its start, at most `LATE_SCAN_LIMIT` nodes.
+- A pass begun alongside an unfinished one (§2.2) does only the queued look
+  on the boxes it passes, and on `<body>` at its start. It owes those boxes
+  the full look until it is the only pass. If a box then fails that look,
+  it is reverted with what it holds, and a new pass begins from the top.
+
+When one of the children found is new, or reaches into the column, Duofari
+takes the extension off for a moment and measures where the page's own box
+puts each of them, `left` and width included.
 
 - If the box clips and one of them, under the page's own box, would sit in
   the strip and show (a drawer added later that the page's clip hides), the
@@ -614,9 +681,12 @@ these hold:
 - its pins are still attached and intact;
 - for a clipper Duofari opened: its content reaches no more than 1 px further
   on the column side than when it was opened, and nothing added inside it
-  since shows in the strip it opened. The controller queues added elements
-  and text, and text edited in place, with `noteAdded` (§2.7). No positioned
-  child that appeared later would show in that strip either (above).
+  since shows in the strip it opened. The controller passes added elements
+  and text, and text edited in place, to `noteAdded` (§2.7). It queues them
+  for the nearest opened clipper's strip check, and, separately, queues
+  elements for the latecomer look of every padding-recipe box around them
+  (above). No positioned child that appeared later would show in that strip
+  either.
 
 Height changes are accepted for boxes, for example a header that shrinks on
 scroll. When the site changes the `class` or `style` of an applied element,
@@ -624,21 +694,27 @@ or of a child it pinned, the element is marked dirty. It is reverted and
 measured again from the site's own styles, so Duofari never keeps padding,
 margin or width values frozen from an older layout. If the element or one of
 its pins is running a CSS transition, that waits until the transition ends:
-reverting with transitions off would cut it short. Restyles of `<body>`
-itself don't mark it dirty, because it changes class all the time and
-reverting it reverts everything inside. Its record is checked at the start of
-each pass instead (§2.2).
+reverting with transitions off would cut it short. For a box that clips, the
+same goes for anything extended inside it, which is reverted with it.
+Restyles of `<body>` itself don't mark it dirty, because it changes class all
+the time and reverting it reverts everything inside. Its record is checked at
+the start of each pass instead (§2.2). A class change that alters `<body>`'s
+own padding or margin on the column side is therefore not seen while
+`<body>` stays extended.
 
 Reverting a clipper reverts everything extended inside it, so that the
 clipper is extended first again. Breakouts reverted with an invalid record
-(their own, or inside a clipper) are put back in the same pass (§2.4).
+(their own, or inside a clipper) are put back in the same pass, or in the
+pass running alongside it (§2.4).
 
 ### 2.4 Media: Reveal, Fill and breakout
 
 Only `<img>` and `<video>` are treated as media. `canvas`, inline SVG, iframes
-(players, maps) and `video[controls]` are never touched. The "Lead image and
-wide artwork" setting (`media`) controls all of it, and under Auto landscape
-none of it runs (§2.1).
+(players, maps) and `video[controls]` are never extended, rescaled or
+re-fitted, and never count as cover layers. When one is positioned inside a
+box that takes the padding recipe, it is only pinned back where it was
+(§2.3). The "Lead image and wide artwork" setting (`media`) controls all of
+it, and under Auto landscape none of it runs (§2.1).
 
 A picture is a candidate only if:
 
@@ -689,9 +765,9 @@ layout, so it is opt-in and tightly limited. The photo must be:
 
 - an `<img>` whose top is below the visible part of the page. Nothing the
   reader is looking at, or has scrolled past, ever grows. The one exception
-  is a photo reverted from a breakout earlier in the same pass (its record,
-  or a clipper around it, was no longer valid): it is put back before the
-  reader sees it shrink;
+  is a photo reverted from a breakout earlier in the same pass, or in the
+  pass running alongside it (its record, or a clipper around it, was no
+  longer valid): it is put back before the reader sees it shrink;
 - at least 0.8 of the layout width, with both edges within 48 px of the
   viewport edges;
 - without rounded corners over 2 px, not inside an interactive element other
@@ -728,11 +804,17 @@ scroll range (the *allowance*), and it measures again after every scan
      overflow is `auto` or `scroll` but which don't scroll sideways. WebKit
      resets `touch-action` at those (§1), so `html` alone would not be
      enough.
+   - Registered app shells (§2.2) are locked the same way while their
+     sideways overflow is at most the column width plus 1 px (`C + 1`). That
+     is Duofari's own widening, or a little of the page's added since, which
+     stays out of reach as small late overflow does on the root (§2.6). Once a
+     shell's overflow is wider, it is unlocked and its whole range stays
+     reachable (see Snap-back).
    - `overscroll-behavior-x: none` goes on `html` when it is locked.
    - Each locked element carries `data-duofari-lock` with the page's own
      inline values as JSON, so copies the page makes of it are cleaned like
-     clone marks (§2.3). Elements that are no longer touch roots, or have left
-     the document, are unlocked.
+     clone marks (§2.3). Elements that are no longer touch roots or held app
+     shells, or have left the document, are unlocked.
 
    Real horizontal scrollers (carousels) are not locked. `touch-action`
    resets at them, so they keep panning. Pinch zoom keeps working unless the
@@ -789,10 +871,13 @@ fit the wider content, and lets the minimum scale follow the content width
 down (§1). On activation Duofari edits the **last** viewport meta in tree
 order, which is the one WebKit applies. It does so only when the page's own
 content fits (allowance < 1) and the meta mentions `width=device-width` or
-`initial-scale`. It appends whatever is missing of `initial-scale=1` and
-`minimum-scale`. The minimum is the page's own `initial-scale` when that is
-below 1, and 1 otherwise: a minimum above the initial scale would zoom the
-page in and lay it out narrower.
+`initial-scale`. It appends `initial-scale=1` if that is missing, and a
+`minimum-scale` if the meta has none or a lower one (Wikipedia declares
+0.25); the later value wins. The minimum is the page's own `initial-scale`
+when that is below 1, and 1 otherwise: a minimum above the initial scale
+would zoom the page in and lay it out narrower. A declared minimum below it
+would let the reader zoom out over what Duofari added beside the page, and
+fixed bars (a donation banner inset from both edges) would stretch along.
 
 - `minimum-scale=1` matters on its own. A user who has zoomed once could
   otherwise be snapped to the new, lower minimum when content grows (SOURCE).
@@ -836,18 +921,21 @@ page fitted then. Diagnostics shows the current allowance as `ownOverflow`.
 |---|---|---|
 | `MIN_INTERVAL` | 300 ms | minimum time between runs; requests in between are merged into one trailing run. Also the wait before the next slice of a pass cut short |
 | `RESIZE_SETTLE` | 250 ms | quiet time after the last resize before a fresh run |
-| `SCAN_BUDGET` | 6000 | visits per slice of a pass |
+| `SCAN_BUDGET` | 6000 | visits per slice, shared by the passes under way (§2.2) |
 | `SLICE_MS` | 12 ms | time per slice; the rest of the pass continues in a later run |
 | `FLIP_LIMIT` / `FLIP_WINDOW` | 4 / 10 s | on/off changes allowed within one pose before standing down |
+| `POSE_FREE` | `not-duo`, `reduced-transparency` | reasons an idle page keeps while zoomed in after a fold or rotation |
 | `META_LIMIT` / `META_WINDOW` | 5 / 10 s | viewport meta repairs allowed before leaving the meta to the page |
-| `TEXT_QUIET` | 5 s | text changing in one element brings a scan at most this often |
+| `TEXT_QUIET` | 5 s | text-only changes, anywhere on the page, bring a scan at most this often |
 
 **A run.**
 
 1. Skip while the document is hidden.
 2. Measure the column, and work out the pose: the window width in points
    (`visualViewport.width × scale`, rounded) and the orientation type. A new
-   pose clears the flip count and `unstable` (see Back-off).
+   pose clears the flip count and `unstable` (see Back-off). A new pose while
+   zoomed in also drops an idle page's earlier unzoomed reason, unless it is
+   one that holds in every pose (`POSE_FREE`).
 3. Work out whether Duofari is switched off here: the global switch
    (`disabled`), the site state (`site-disabled`, `excluded-site`) or the
    flip back-off (`unstable`).
@@ -855,28 +943,33 @@ page fitted then. Diagnostics shows the current allowance as `ownOverflow`.
    deactivated if it was switched off meanwhile. An inactive page reports the
    off reason if there is one, otherwise its earlier unzoomed reason
    (`not-duo`, `no-column`, `desktop-layout`, `start-side` and so on). It
-   reports `zoomed` only when there was no earlier answer, or that answer was
-   `column`.
+   reports `zoomed` when there is no earlier answer (none yet, or one dropped
+   in step 2), or that answer was `column`. A fold or rotation while zoomed
+   in therefore shows `zoomed` until the user zooms out, except on a page
+   that isn't on a Duo or has Reduce Transparency on.
 5. While the page is drifted, ask for another run 200 ms on (`schedule(200)`,
    so in practice `MIN_INTERVAL` after this run began).
 6. Decide whether to be active: not switched off, and a column width above 0.
    A change between on and off counts as a flip.
 7. If the geometry changed (width, side, the images flag or the layout width),
-   revert everything and start from the page's own layout.
+   revert everything, drop any unfinished pass and start from the page's own
+   layout.
 8. On activation, measure the allowance, probe `100vw` and fix the viewport
    meta, in that order.
-9. Drop records of removed elements, then scan: a fresh pass, or the rest of
-   a pass cut short.
+9. Drop records of removed elements, then scan. The pass's own timer goes on
+   with an unfinished pass. Any other run starts a new pass, alongside the
+   unfinished one if there is one (§2.2).
 10. Measure the allowance again (§2.6).
 11. Enable the guard with the touch roots and app shells the scan found and
     the column width, then update the debug view.
 12. Discard the mutation records caused by Duofari's own writes.
 
 **Scheduling.** Triggers ask for a run through `schedule()`, which keeps runs
-`MIN_INTERVAL` apart, and each such run starts a fresh pass. Settings changes
-and the end of a resize run at once. A pass cut short (§2.2) is continued by
-its own timer `MIN_INTERVAL` later; that timer stands down when a fresh run
-is already on its way. Once a pass completes, nothing is rescheduled, except
+`MIN_INTERVAL` apart, and each such run starts a new pass from the top.
+Settings changes and the end of a resize run at once. A pass cut short (§2.2)
+is continued by its own timer `MIN_INTERVAL` later. That timer stands down
+when another run is already on its way, since that run goes on with the
+unfinished pass too. Once the passes complete, nothing is rescheduled, except
 while a record waits for a transition to end (§2.3): then a run is asked for
 60 ms on, which `schedule()` still keeps `MIN_INTERVAL` after the last run.
 
@@ -905,19 +998,31 @@ while a record waits for a transition to end (§2.3): then a run is asked for
   are cleaned first, even while Duofari is off (§2.3). With the global switch
   off, nothing else is done.
 - Added and removed elements count, except Duofari's own nodes.
-- Elements and text added inside a clipper Duofari opened, and text edited in
-  place there (`characterData`, as React updates it), are queued with
-  `noteAdded` for the clipper's next re-check (§2.3). Text that keeps
-  changing in one element (a clock, a live score) brings a scan at most once
-  per `TEXT_QUIET`. A change within that time sets one shared trailing timer
-  instead, so the queue is checked by the next scan, `TEXT_QUIET` later at
-  the latest. Text changes outside opened clippers don't count.
+- While Duofari is active, added elements and text, and text edited in place
+  (`characterData`, as React updates it), go to `noteAdded` (§2.3). It queues
+  elements for the latecomer look of each padding-recipe box around them,
+  and any node for the nearest opened clipper's strip check.
+- Text-only changes count only when an opened clipper queued them, and then
+  bring a scan at most once per `TEXT_QUIET` across the whole page, not per
+  element (a live list updates many cells, each on its own). A change within
+  that time sets one shared trailing timer instead. It brings a scan
+  `TEXT_QUIET` after the last text scan and counts as one itself, so no change
+  goes unchecked, and a clock or a live list costs about one scan per 5 s.
+  Text in a batch that already brings a scan isn't counted. Text changes
+  outside opened clippers don't count.
 - A `class` or `style` change on an applied element, or on a child it pinned,
   marks the element dirty (§2.3). A `style` change that only touches the
   guard's lock (written while zooming, outside a run) or custom properties
   (`--*`, which scroll effects write every frame) is ignored.
-- A `style` change on any other element is ignored. That covers Duofari's own
-  writes and the page's animations.
+- While Duofari is active, attribute changes other than `content` on
+  elements Duofari hasn't changed are queued with `noteChanged` for the
+  padding-recipe boxes around them (§2.3), `style` changes included. An
+  element whose inline style changes more than 10 times in a second is left
+  out of that queue for 5 s (`styleRates`, counted apart from the rule
+  below), so animations written every frame don't push everything else out
+  of it.
+- A `style` change on any other element brings no scan by itself. That covers
+  Duofari's own writes and the page's animations.
 - A `content` change never brings a scan by itself. On a `<meta>` it
   re-checks the viewport meta (§2.6), and so does any change to `<head>`'s
   children.
@@ -927,9 +1032,10 @@ while a record waits for a transition to end (§2.3): then a run is asked for
 - After every batch, lifts are re-checked (§2.2).
 
 **Fold, unfold and rotation.** On a resize that changes the layout width,
-Duofari reverts everything at once. Pinned widths from the old layout would
-otherwise flash at the new size. It re-applies 250 ms after the last resize,
-once the transient sizes have passed.
+Duofari reverts everything at once and drops any unfinished pass. Pinned
+widths from the old layout would otherwise flash at the new size. It
+re-applies 250 ms after the last resize, once the transient sizes have
+passed.
 
 **Back-off.**
 
@@ -1072,9 +1178,9 @@ the content script, restricted to the phone idiom.
 - Desktop-layout pages, unless "Also adjust desktop-layout pages" is on.
 - The built-in excluded web apps, unless turned on per site.
 - Frames. Only the top document runs, and iframes can't reach the column.
-- The slides inside carousels and sliders on the scan that classifies the
-  carousel (§2.2), players, `canvas`, inline SVG, form controls and dialogs;
-  and tables, inline boxes and interactive elements as bands.
+- The slides inside carousels and sliders (§2.2), players, `canvas`, inline
+  SVG, form controls and dialogs; and tables, inline boxes and interactive
+  elements as bands.
 - Charts, screenshots and comics, except where Reveal can show cropped-away
   art without rescaling. Full-width pictures with text labels positioned over
   them are skipped in every mode.
@@ -1124,7 +1230,24 @@ the content script, restricted to the phone idiom.
   enabled.
 - **Large pages** are walked in slices of 6,000 visits or 12 ms, 300 ms apart
   (§2.2), so on a very large page some bands extend a moment later than
-  others.
+  others. On a page that keeps changing, each new pass takes a quarter of
+  every slice, so the pass already under way reaches deep content about a
+  third later.
+- **Changing text.** Text-only changes inside an opened wrapper bring a scan
+  at most once every 5 s (`TEXT_QUIET`), counted across the whole page. Text
+  that starts to reach into the column within 5 s of another text change can
+  show there until that scan.
+- **Late menus and toasts.** In a box extended with the padding recipe,
+  Duofari looks for positioned boxes that appear later among the last 20
+  elements the page added or changed in the box, and in the first 2,000
+  nodes from its start (§2.3). One that both miss (deep in a large box,
+  behind more than 20 newer changes) keeps the place the grown box gives it,
+  up to `C` px off, until the page changes it again.
+- **Scroll locks.** Bootstrap's `data-bs-*` copies of inline values are kept
+  in step (§2.3). A lock that keeps its copy elsewhere (Bootstrap 4 uses
+  jQuery data), or that rounds the value it echoes, can leave Duofari's
+  padding on the page once Duofari lets go of the box, for example when a
+  modal closes after Duofari was turned off.
 - **Safari's own covers.** Safari's opaque fill, the
   `HorizontalBannerViewOverlaysEnabled` behaviour, Live Activities and the
   column's own contents may hide part or all of what is extended. None of this
@@ -1142,15 +1265,22 @@ In short:
   - the 22 unit tests (`test/unit/geometry.test.mjs` and
     `test/unit/background.test.mjs`, `node:test`);
   - the 26 fixture cases (`test/run-fixtures.mjs`);
-  - the 48 regression cases (`test/run-regressions.mjs`). Each builds a small
-    page around one defect found in review and checks the behaviour its fix
-    restored;
+  - the 71 regression cases (`test/run-regressions.mjs`): 49 for the engine
+    and 22 for the controller, guard and popup-facing behaviour. Each builds a
+    small page around one defect found in review and checks the behaviour its
+    fix restored;
   - the 15 popup states (`test/run-popup.mjs`, with a mocked browser API).
 - `npm run test:live` runs the same invariants against 16 live sites. It
   reads vertical moves on both sides of turning Duofari off, in one step
   where no page script can run, and checks that turning off gives back every
   declaration Duofari changed, the touch settings of `html` and `body`, and
-  the viewport meta.
+  the viewport meta. An echo of a non-zero `px` value Duofari wrote, without
+  `!important`, counts as Duofari's and must come back to the saved
+  original (§2.3).
+- The fixture and live runners wait for Duofari's scan to finish before they
+  check anything (`untilScanned` in `test/lib/duo.mjs`): until the
+  controller's `cursor`, `timer` and `resumeTimer` are clear, for at most
+  5 s.
 - The fixtures emulate the folded Duo in Playwright/Chromium (`test/lib/duo.mjs`):
   - a 382 × 580 viewport, a 466 × 678 screen and DPR 3;
   - the screen orientation set through CDP and re-applied after screenshots;

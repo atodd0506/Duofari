@@ -52,13 +52,17 @@ How it works, in short (details in [docs/DESIGN.md](docs/DESIGN.md)):
   Every change is measured and rolled back if content moved. Fixed bars also get an identity
   `translate`: going by WebKit's source, that lets them paint past the layout viewport (not yet
   confirmed on a device). On pages whose own content fits, `initial-scale=1` and
-  `minimum-scale=1` are added to the viewport meta where they are missing, so Safari does not
-  zoom out to fit the wider content. If the page's own initial scale is below 1, the minimum
-  scale is set to that instead.
+  `minimum-scale=1` are added to the viewport meta where they are missing, and the minimum is
+  raised to 1 where the page allows less, so neither Safari nor the reader zooms out over the
+  wider content. If the page's own initial scale is below 1, the minimum scale is set to that
+  instead.
 - **Clean undo.** Changes are inline styles with the originals saved. Turning Duofari off puts
   the originals back; on an element it extended, a value the page set itself in the meantime is
-  kept. Copies the page makes of changed or locked elements (such as sticky-header clones) are
-  cleaned up as soon as they appear, even while Duofari is off.
+  kept. A modal's scroll lock that writes Duofari's own padding or margin back, as Bootstrap's
+  does, doesn't count as the page's value. The copy Bootstrap 5 keeps for when the modal closes
+  is pointed back at the page's own value, or removed if the page had none. Copies the page
+  makes of changed or locked elements (such as sticky-header clones) are cleaned up as soon as
+  they appear, even while Duofari is off.
 
 ## Where it works
 
@@ -156,7 +160,7 @@ npm run test:live     # 16 live websites (needs network)
   moves, nothing hidden is revealed, no sideways scroll, and a clean revert (apart from the
   single-page-app case, the DOM is the same byte for byte after turning Duofari off). Pass
   case names to run only some cases: `node test/run-fixtures.mjs blog news`.
-- `npm run test:regressions`: `test/run-regressions.mjs` runs 48 cases, each built around one
+- `npm run test:regressions`: `test/run-regressions.mjs` runs 71 cases, each built around one
   defect found in review, and checks the behaviour its fix restored. Pass names to run only
   some: `node test/run-regressions.mjs engine-4`.
 - `npm run test:popup`: 15 popup states with a mocked browser API, including the site access
@@ -240,7 +244,12 @@ docs/                 DESIGN.md, TESTING.md, APPSTORE.md, images/
   then zoom the page out to fit the extended content.
 - **Pinch-zoomed in.** While you're zoomed in, Duofari keeps the page as it was and doesn't
   measure it again until you zoom back out. A page that was already zoomed in when Duofari
-  started is left unchanged until then; the popup says "Paused while zoomed in".
+  started is left unchanged until then; the popup says "Paused while zoomed in". If Duofari
+  wasn't working on the page and you fold, unfold or rotate while zoomed in, the popup says the
+  same until you zoom back out. A reason that folding or turning can't change, such as "Not an
+  iPhone Duo", "Reduce Transparency is on" or "Off for this site", stays. If Duofari was working
+  on the page, folding, unfolding or rotating while zoomed in undoes its changes at once, and it
+  measures the page again once you zoom back out.
 
 ## Privacy
 

@@ -61,15 +61,21 @@ Duofari is not working, the popup says why:
 | Controls on the wrong side | Safari's controls are on the side where the page's lines begin. Pages can only extend past the edge where their lines end. This happens with right-to-left pages in portrait, and with left-to-right pages in landscape when the controls are on the left. | Nothing for that page. In landscape, if Safari's controls are really on the right, set **Safari’s controls in landscape** to **Right** under **More**. |
 | Reduce Transparency is on | Duofari stands down when Reduce Transparency is on, because Safari's column may become opaque and hide anything under it. Whether Safari tells pages about this setting has not been confirmed. | To use Duofari, turn off **Reduce Transparency** in **Settings > Accessibility > Display & Text Size**. |
 | Paused on this page | The page kept changing size while Duofari worked: more than 4 on/off changes in 10 seconds, with the phone in one position. Folding, unfolding and rotating don't count. Duofari stepped back. | Reload the page. Changing any setting in the popup, or going to another page on the site, also makes Duofari try again. If it keeps pausing, [send a report](#send-a-report). |
-| Paused while zoomed in | You're pinch-zoomed in, and Duofari hadn't changed the page before you zoomed in (for example, the page was already zoomed in when Duofari started on it). Duofari doesn't start on a page while it's zoomed in. | Zoom back out. Duofari then applies itself to the page. |
+| Paused while zoomed in | You're pinch-zoomed in, and Duofari hadn't changed the page before you zoomed in (for example, the page was already zoomed in when Duofari started on it, or you folded, unfolded or turned the phone while zoomed in). Duofari doesn't start on a page while it's zoomed in. | Zoom back out. Duofari then applies itself to the page. |
 | Duofari is off | The main switch is off. | Turn on **Duofari on all websites** under **More**. |
 | Off for this site | You turned Duofari off for this site. | Turn on the **On for** switch near the top of the popup. |
 | Off for this web app | The site is on Duofari's list of web apps that draw their own full-screen interface. | To try Duofari there, turn on the **On for** switch. |
 | Not active | A state the popup has no message for. | [Send a report](#send-a-report). |
 
 If you zoom in on a page Duofari has already worked on, Duofari leaves the page as it is and the
-popup keeps showing the status from before you zoomed. If Duofari had stopped for a reason, such
-as "Not an iPhone Duo" or "Nothing to extend here", the popup keeps showing that reason. Turning
+popup keeps showing the status from before you zoomed. If Duofari had extended the page and you
+then fold, unfold or turn the phone while still zoomed in, it undoes its changes, and the popup
+says "On, nothing to extend yet" until you zoom back out. If Duofari had stopped for a reason,
+such as "Not an iPhone Duo" or "Nothing to extend here", the popup keeps showing that reason. If
+you then fold, unfold or turn the phone while still zoomed in, the popup says "Paused while
+zoomed in" instead, because Duofari can't check the new position until you zoom back out. "Not
+an iPhone Duo", "Reduce Transparency is on" and the off switches ("Duofari is off", "Off for
+this site", "Off for this web app") stay, because folding or turning can't change them. Turning
 Duofari off, for the site or everywhere, still takes effect at once while you're zoomed in.
 
 The popup can also say:

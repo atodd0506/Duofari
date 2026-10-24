@@ -44,7 +44,7 @@ globally.
 | `npm test` | `test:unit`, then `test:fixtures`, then `test:regressions`, then `test:popup` | Everything except live sites. The scripts are joined with `&&`, so the run stops at the first failing suite. | Chromium |
 | `npm run test:unit` | `node --test "test/unit/*.test.mjs"` | 22 tests: column detection (`content-geometry.js`), the per-site switches (`shared-settings.js`) and the device report in `background.js`. | Node only |
 | `npm run test:fixtures` | `node test/run-fixtures.mjs` | 26 cases on the pages in `test/fixtures/`, in the emulated folded Duo. | Chromium |
-| `npm run test:regressions` | `node test/run-regressions.mjs` | 48 cases, each a small page built around one defect found in review. | Chromium |
+| `npm run test:regressions` | `node test/run-regressions.mjs` | 71 cases, each a small page built around one defect found in review. | Chromium |
 | `npm run test:popup` | `node test/run-popup.mjs` | 15 popup states, with a stand-in for Safari's extension APIs. | Chromium |
 | `npm run test:live` | `node test/run-live.mjs` | The same invariants on 16 live websites. Not part of `npm test`. | Chromium, network |
 
@@ -119,7 +119,11 @@ For each case the runner:
    between can't misalign them.
 4. Injects the six content scripts in manifest order, as one script, with the case's settings.
    It then waits 450 ms and two animation frames. This stands in for Safari running them at
-   `document_idle`.
+   `document_idle`. Then `untilScanned()` in `test/lib/duo.mjs` waits for the first pass to
+   end. A pass is cut into 12-ms slices, each resumed 300 ms after the last, so on a busy
+   machine it can outlast any fixed wait. The helper checks every 50 ms until `cursor`, `timer` and
+   `resumeTimer` in `Duofari.controller.state` are all clear, for at most 5 s, then waits 50 ms
+   and two frames more. If the 5 s run out, the case goes on without failing.
 5. Runs the checks below, writes a before/after preview, then turns Duofari off through
    `Duofari.controller` and compares the page with the "before" state.
 
@@ -215,7 +219,7 @@ number of extended elements.
 | `overflow-root-parked` | `overflow-root.html?parked` | | active | The same page with a slide parked past the right edge, hidden only by the body's clip. Opening the body would show the slide under the column, so the header and the hero stay where they are (`none`), the column beside them shows the page background, and the slide's text stays hidden. |
 | `app-shell` | `app-shell.html` | | active, ≥ 2 | A page that scrolls a `div` (`#app`) instead of the document. The shell reaches into the column but must not become sideways-scrollable. Bar probe `#0f766e`. |
 | `menus` | `menus.html` | | active, ≥ 1 | A header with a cover art layer, so Duofari must extend it with the padding recipe; the case fails if it uses another one. The menu and the search panel sit inside the header and open after Duofari has run, laid out against the grown padding box. The runner opens the menu, then the search panel. Every menu link and the search input must end left of the column. It closes them again before the other checks. |
-| `clone` | `news.html` | | active | Copies the extended `.masthead` after Duofari has run, like sticky-header scripts do. The copy must not keep `data-duofari` or the `-84px` styles. |
+| `clone` | `news.html` | | active | Copies the extended `.masthead` after Duofari has run, like sticky-header scripts do. Checked right after the observer's microtask, before any other task runs, the copy must not keep `data-duofari` or the `-84px` styles. 500 ms later a scan may have extended the copy as a fixed bar of its own. If it carries `data-duofari` then, Duofari must have a record for it, and the originals saved in that record must hold none of Duofari's `84px` values. |
 | `spa` | `spa.html` | | active, ≥ 2 | A page that renders its content late and swaps it on `pushState`. The runner navigates to `/b` and back to `/a`, and Duofari must extend the new content. Skips the text, hidden-text, control and expectation checks and the byte-for-byte undo check. |
 | `offcanvas` | `offcanvas.html` | | active, ≥ 2 | A closed drawer parked past the right edge inside an `overflow-x: hidden` wrapper must stay hidden, and that wrapper's band is left alone. The fixed header extends. A band in a wrapper that hides only transparent, waiting-to-animate content extends. |
 | `landscape-right` | `appstore-story.html` | `landscape-right` (594 × 340, angle 270) | active, ≥ 1 | **Auto** in landscape: the header extends, the image stays (`inset`), and the column shows the header's own grey (probe `#5a5a5f`), not the picture. |
@@ -232,30 +236,36 @@ number of extended elements.
 
 ### Regression tests (`test/run-regressions.mjs`)
 
-Each of the 48 cases builds a small page around one defect found in review and checks the
+Each of the 71 cases builds a small page around one defect found in review and checks the
 behaviour its fix restored. Most cases write their page inline. The runner serves it at
 `/<case name>.html` beside the fixtures, so pictures in `img/` load. Two cases (`lifecycle-6`
-and `engine-9`) use `blog.html`.
+and `engine-9`) use `blog.html`. Four reuse another case's page: `r5-engine-2`, `r6-engine-3`
+and `r7-engine-3` use the Bootstrap page of `r4-engine-4`, and `r7-engine-2` uses the page of
+`r6-engine-1` with 30 animated boxes added.
 
 For each case the runner opens a fresh folded tab, loads the page, applies the minimum-scale
 shim, waits 300 ms and takes a snapshot. The case then injects Duofari itself and drives the
 page. Depending on the defect it adds content, restyles elements, zooms in with
-`Emulation.setPageScaleFactor`, switches poses with `orientPage()`, slows the CPU, sends touch
-events, or turns Duofari off the way the popup does. Some cases open a second tab. A case fails
-if one of its checks fails, if it throws, or if the page logs an error.
+`Emulation.setPageScaleFactor`, switches poses with `orientPage()` or
+`Emulation.setDeviceMetricsOverride`, slows the CPU, sends touch events, counts or times calls
+to `Duofari.scan`, or turns Duofari off the way the popup does. Some cases open a second tab. A
+case fails if one of its checks fails, if it throws, or if the page logs an error. Unlike the
+fixture and live runners, this one doesn't call `untilScanned()`: several cases act while the
+first pass is still unfinished.
 
 ```sh
-node test/run-regressions.mjs              # all 48 cases
+node test/run-regressions.mjs              # all 71 cases
 node test/run-regressions.mjs engine-4     # cases whose name contains "engine-4"
 ```
 
-As with the fixtures, a filter matches parts of names, so `engine-4` also runs `r3-engine-4`.
-The name `engine-r2-10` is used once in each group, so filtering on it runs both. The runner
-prints `✓` or `✗` with each case's description, and exits with status 1 if any case failed.
+As with the fixtures, a filter matches parts of names, so `engine-4` also runs `r3-engine-4`,
+`r4-engine-4` and `r6-engine-4`. The `LIFECYCLE` case `engine-r2-10` is part of the name of the
+`ENGINE` case `engine-r2-10b`, so filtering on `engine-r2-10` runs both. The runner prints `✓`
+or `✗` with each case's description, and exits with status 1 if any case failed.
 
 The cases are in two groups, run in this order.
 
-**`ENGINE`, 31 cases:** choosing, extending and restoring boxes (`content-bleed.js`,
+**`ENGINE`, 49 cases:** choosing, extending and restoring boxes (`content-bleed.js`,
 `content-classify.js`).
 
 - **Fixed and sticky bars.** A lifted fixed header stays extended through later scans
@@ -268,51 +278,94 @@ The cases are in two groups, run in this order.
   content is opened (`engine-r2-7`). Content that grows past an opened one later is checked
   (`engine-r2-3`). A clipping `<body>` is checked again for added content (`engine-r2-2`). A
   class on it cuts no running transition, and a photo broken out on screen doesn't shrink with
-  it (`r3-engine-2`). A band that clips stays extended when it holds a band or the lead image
-  (`r3-engine-1`).
+  it (`r3-engine-2`). Closing a dropdown pinned in it, or a class on an opened wrapper, cuts
+  none either (`r4-engine-3`). A band that clips stays extended when it holds a band or the lead
+  image (`r3-engine-1`).
 - **Positioned children and pseudo-elements.** They stay put deep inside a large wrapper
   (`engine-6`, `engine-r2-9`), and under CSS anchor positioning (`engine-13`). So does
   foreground in a full-size layer: a contained image, a centred logo, a labelled pseudo-element
   (`engine-7`). Toasts added to an extended hero stay centred, also while sliding in, and still
   slide in by `right` or grow by `width` (`engine-10`, `engine-r2-4`, `r3-engine-7`). Extending
-  a band's border reads no pseudo-elements of what is inside it (`engine-r2-10`).
+  a band's border reads no pseudo-elements of what is inside it (`engine-r2-10b`).
 - **Pictures and cover layers.** Pictures are measured again when their `src` changes
   (`engine-5`). A broken-out photo stays broken out when it is restyled (`engine-9`). Layers
   built from boxes grow with their hero (`engine-r2-5`), but an icon drawn as a layer's
-  background image stays put (`engine-r2-6`). Art drawn by an inner wrapper's pseudo-element
-  continues under the column (`r3-engine-4`). Under **Auto** in landscape, no picture in a band
-  is rescaled (`r3-engine-extra-1`, the only case in a folded landscape pose; it compares
-  screenshots of the page from before and after).
+  background image stays put (`engine-r2-6`). Art drawn by the pseudo-element of an inner
+  wrapper continues under the column (`r3-engine-4`), also when that wrapper sits inside the
+  hero's container, one level further in (`r4-engine-5`). A video with controls that fills a
+  hero, with or without a tint over it, is never re-fitted or grown with it: it still ends at
+  the layout edge (`r5-engine-video`). Under **Auto** in landscape, no picture in a band is
+  rescaled (`r3-engine-extra-1`, in the folded landscape pose; it compares screenshots of the
+  page from before and after).
+- **Carousels.** The slides of a carousel whose own box stays extended, or that animates, are
+  never restyled, however many scans follow (`r5-engine-carousel`, with **Every full-width
+  image** on). A picture extended before a slider library wrapped it into a carousel, as Slick
+  does when it loads, is put back (`r6-engine-6`). A carousel is swept for such leftovers once,
+  not on every pass (`r7-engine-1`). An app shell that snaps up and down is not a carousel: its
+  sections extend, and the shell is locked to `pan-y pinch-zoom` (`r6-engine-5`).
 - **Restoring.** A copy of `<body>` put back by the page, as Turbo does, keeps none of
   Duofari's styles or lock (`engine-8`). Turning off restores `var()` shorthands and inline
   transitions exactly and keeps the page's own later writes (`engine-11`, `r3-engine-5`).
   Nothing is written into editable content (`engine-12`).
-- **Large pages.** A band after 7,000 elements is reached (`r3-engine-scan`). A large page whose
-  positioned `<body>` clips is walked to the end with the CPU slowed four times
-  (`r3-engine-3`). Once walked, neither page gets more than one scan in 2 s of idling.
+- **Bootstrap modals.** The page carries a copy of Bootstrap 5.3's `ScrollBarHelper`, which
+  writes Duofari's own padding and margin back and keeps copies in `data-bs-*` attributes.
+  With the modal open, the text stays put and the sticky bar stays extended. After it closes,
+  the text still stays put. Turning off then leaves both style attributes as the page had them
+  (`r4-engine-4`). Turning off, or unfolding, with the modal open leaves the modal nothing of
+  Duofari's to write back when it closes, and turning on again extends `<body>` again
+  (`r5-engine-2`). Turning the phone with the modal open, then closing it, leaves `<body>` and
+  the bar extended (`r6-engine-3`). Turned off with the modal open and on again once it has
+  closed, Duofari leaves no `data-bs-*` copy behind (`r7-engine-3`).
+- **Large pages.** A band after 7,000 elements is reached (`r3-engine-scan`), also while a clock
+  in the header changes five times a second (`r4-engine-1`). A large page whose positioned
+  `<body>` clips is walked to the end with the CPU slowed four times (`r3-engine-3`). With a
+  clock ticking in its header as well, the hero below the header is still extended within 3 s
+  (`r4-engine-2`). Once walked, the pages of `r3-engine-scan` and `r3-engine-3` get no more
+  than one scan in 2 s of idling. With 50,000 rows in one container, a clock ticking and the
+  CPU slowed four times, the median slice of a pass stays under 20 ms, for slices meant to take
+  12 ms (`SLICE_MS`) (`r6-engine-4`).
+- **Changes on large pages.** On a page of 10,000 rows with the CPU slowed four times, the
+  first pass takes a few seconds. Meanwhile a strip added under the header of a clipping
+  `<body>` is extended, and then a toast added there is centred, each within a second
+  (`r5-engine-1`). On a page like it, a dropdown added to a sticky header with a hairline drawn
+  by `::after` is back where the page puts it, and a toast shown by a class inside an opened
+  wrapper is centred, each within a second (`r6-engine-1`). Thirty boxes that animate their
+  inline style every frame don't hold that toast up (`r7-engine-2`). A centred toast appended
+  to an opened `<body>`, after more than `LATE_SCAN_LIMIT` (2,000) elements, is put back where
+  the page puts it (`r6-engine-2`).
 
-**`LIFECYCLE`, 17 cases:** the controller, the guard and what the popup is told
+**`LIFECYCLE`, 22 cases:** the controller, the guard and what the popup is told
 (`content-main.js`, `content-guard.js`, `content-geometry.js`).
 
 - **Holding the page still.** A page-sized horizontal scroller, and an app shell that holds
   wide content of its own, keep their scroll positions (`lifecycle-1`, `r3-lifecycle-2`). Wide
   content added later can be scrolled to, and the lock returns once it is gone (`lifecycle-4`).
-  The lock brings back no pinch-zoom the page turned off, and leaves `touch-action: none` alone
+  An app shell that the page later gives a box 420 px wide, which overflows it by less than the
+  column, stays at 0 during a sideways swipe and after it (`r4-controller-1`). The lock brings
+  back no pinch-zoom the page turned off, and leaves `touch-action: none` alone
   (`lifecycle-2`). A touch whose target removes itself does not leave the snap-back waiting
   (`lifecycle-7`).
 - **The viewport meta.** The fix survives head managers that replace the meta or keep
   rewriting it (`lifecycle-3`). After five repairs within 10 s the meta is left to the page
   until its next route (`r3-lifecycle-7`). Both cases run without the Navigation API, as in
-  Safari 18. A page that starts zoomed out keeps its zoom and layout width (`lifecycle-9`).
+  Safari 18. A page that starts zoomed out keeps its zoom and layout width (`lifecycle-9`). A
+  page whose meta allows zooming out to 0.25, as Wikipedia's does, gets `minimum-scale=1` after
+  it, so its fixed donation-style banner stays where it was, and gets its own meta back when
+  Duofari is turned off (`r7-controller-1`).
 - **When Duofari runs.** Folding and unfolding twice does not pause it (`lifecycle-5`). A page
   that switches to a desktop viewport whenever something is extended makes it stand down with
   `unstable` (`r3-lifecycle-3`). Turning it off while zoomed in takes effect at once, a page
   that starts zoomed in reports `zoomed`, and zooming in keeps an idle reason such as
-  `no-column` or `not-duo` (`lifecycle-8`, `r3-lifecycle-4`). The device report the popup asks
-  for each time it opens changes nothing on the page (`lifecycle-6`).
+  `no-column` or `not-duo` (`lifecycle-8`, `r3-lifecycle-4`). Unfolded, zoomed in and then
+  folded while still zoomed in, it reports `zoomed`, not the old pose's `no-column`, and it is
+  active once zoomed out (`r4-controller-3`). An ordinary iPhone turned while zoomed in still
+  reports `not-duo` (`r5-controller-1`). The device report the popup asks for each time it
+  opens changes nothing on the page (`lifecycle-6`).
 - **Keeping up with changes.** Custom properties written every frame, and a ticking clock,
   inside an opened wrapper bring no stream of scans (`engine-r2-10`). Text that changes twice in
-  a row, or is edited in place, is still checked (`r3-lifecycle-1`, `r3-engine-6`).
+  a row, or is edited in place, is still checked (`r3-lifecycle-1`, `r3-engine-6`). Twenty of
+  200 price cells, edited in place four times a second, bring at most 2 scans in 3 s, and a
+  status line that gets longer meanwhile is still checked within 5.6 s (`r4-controller-2`).
 - **The popup's answer.** An SVG file shown on its own answers `unsupported-document`, from one
   listener even when the scripts are injected twice (`platform-3`).
 
@@ -374,9 +427,10 @@ The built-in list is in `SITES` at the top of `test/run-live.mjs`. For each site
 3. Applies the minimum-scale shim. Notes the inline `touch-action` and `overscroll-behavior-x`
    of `<html>` and `<body>`, and the viewport meta's content. Takes a screenshot and a
    snapshot.
-4. Injects Duofari. Right after, it saves the inline declarations of every element Duofari
-   changed, before the checks below give the page's scripts a reason to write. Whatever changes
-   after this is the page's doing. It then takes another snapshot.
+4. Injects Duofari and waits for its first pass to end with `untilScanned()`, as the fixtures
+   do. Right after, it saves the inline declarations of every element Duofari changed, before
+   the checks below give the page's scripts a reason to write. Whatever changes after this is
+   the page's doing. It then takes another snapshot.
 
 It checks, on pages where Duofari is active:
 
@@ -397,6 +451,10 @@ It checks, on pages where Duofari is active:
     `!important` and isn't the page's own, it counts as saved wrongly, and the page's own value
     is expected instead. Duofari's declarations are always `!important`, and a script's hardly
     ever are.
+  - A declaration that holds Duofari's value without `!important` counts as Duofari's too, when
+    that value is a px length other than 0. That is a scroll lock's echo of the computed style,
+    as Bootstrap's modal helper writes it. Duofari puts the value it replaced back there as
+    well, so that value is expected. A zero, a keyword or any other value counts as the page's.
   - A declaration the page changed after the save stays as the page set it.
   - Every other declaration matches the page's original `style` attribute.
   - Once the declarations are the page's own, the `style` attribute matches the original byte
@@ -404,8 +462,9 @@ It checks, on pages where Duofari is active:
   - On an element Duofari took on only after the save, only the declarations it holds are
     checked: nothing else tells its changes from the page's there.
 
-  One limit: a declaration the page writes on one of these elements during the injection
-  itself can't be told from Duofari's. The check expects it to be gone.
+  One limit: a declaration the page writes on one of these elements during the injection, or
+  while the runner waits for the pass to end, can't be told from Duofari's. The check expects
+  it to be gone.
 
 On every page it also checks that no script error was thrown from Duofari's code. The harness
 names the injected script `duofari-content.js` with a `//# sourceURL` comment (`SOURCE_URL` in
@@ -419,7 +478,9 @@ The output marks each site:
 - `–` could not be tested (load error or timeout). This doesn't count as a failure.
 
 The number after the counts is the time from injection until settled. It includes the fixed
-450 ms wait, so it is not Duofari's own running time.
+450 ms wait and the wait for the pass to end, so it is not Duofari's own running time. A time of
+about 5.5 s means that wait ran its full 5 s, which it always does once a pass needed more than
+one slice (see [How a case runs](#how-a-case-runs)).
 
 Live sites change, show consent banners and sometimes block headless browsers, so results vary
 from run to run. A page that overflows the viewport by itself is flagged `emulationLimited`, and
@@ -498,13 +559,15 @@ back to that.
   - Safari's column tint and its solid fill over the column (`LocalFrameView::fixedContainerEdges`);
   - the glass effect.
 - **Touch.** The fixture and live guard checks use a programmatic `scrollTo`, and the fixtures
-  read the computed `touch-action`. Two regression cases send Chromium touch events: a tap
-  (`lifecycle-7`) and a two-finger pinch (`lifecycle-2`). Other regression cases zoom in with
+  read the computed `touch-action`. Three regression cases send Chromium touch events: a tap
+  (`lifecycle-7`), a two-finger pinch (`lifecycle-2`) and a one-finger sideways swipe in an app
+  shell (`r4-controller-1`). Other regression cases zoom in with
   `Emulation.setPageScaleFactor` instead of a gesture. None of this shows whether Safari
   honours the lock (`pan-y pinch-zoom` on the root), what happens to double-tap zoom and
   swiping back, or how pausing while pinch-zoomed feels.
 - **Folding and unfolding.** Every fixture case starts in a fresh context. `lifecycle-5` folds
-  and unfolds twice in one tab, and `r3-lifecycle-3` drives the on/off back-off with a page that
+  and unfolds twice in one tab, `r4-controller-3` folds while zoomed in, `r6-engine-3` turns the
+  phone with a modal open, and `r3-lifecycle-3` drives the on/off back-off with a page that
   keeps switching its viewport meta. But `orientPage()` changes the size in a single jump, so
   the sequence of resizes during a real fold is not exercised. Handling that sequence is the job
   of `onResize` and `RESIZE_SETTLE` (250 ms) in `content-main.js`.
@@ -513,6 +576,11 @@ back to that.
   `lifecycle-6` that the same report again changes nothing on the page. The native-messaging
   round trip itself (`background.js` to `SafariWebExtensionHandler.swift`) is not tested. The
   popup test only checks that the popup asks for it.
+- **Phone speed.** Six regression cases slow Chromium's CPU four times to stand in for a phone
+  (`r3-engine-3`, `r4-engine-2`, `r5-engine-1`, `r6-engine-1`, `r6-engine-4`, `r7-engine-2`).
+  How fast Safari on iPhone Duo really walks a page has not been measured. These cases, and
+  the ones that count scans within a few seconds, depend on timing: on a much slower or busy
+  machine they may fail without a defect.
 - **Isolated worlds.** In Safari the content scripts run in an isolated world. In the harness
   they share the page's globals.
 
@@ -943,7 +1011,8 @@ change. When hardware numbers differ from the emulation, also update `POSES` in
 - **Check.** Checklist steps 7 to 9, on hardware.
 - **Today.**
   - With **Hold pages steady** on (`holdSteady: true` by default in `shared-settings.js`),
-    `lockElement()` in `content-guard.js` locks `<html>`, `<body>` and scrolling wrappers.
+    `lockElement()` in `content-guard.js` locks `<html>`, `<body>` and scrolling wrappers. App
+    shells are locked too, while their sideways overflow is at most the column plus 1 px.
     `lockValue()` takes the element's own computed `touch-action` and removes only sideways
     panning (`pan-x`, `pan-left`, `pan-right`). `auto` and `manipulation` become `pan-y
     pinch-zoom`. An element that already allows no sideways panning is left alone, so a
