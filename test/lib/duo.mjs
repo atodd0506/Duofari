@@ -244,30 +244,11 @@ export async function duofariState(page) {
 }
 
 /**
- * Text runs and controls of snapshot `a` that aren't at the same height in
- * snapshot `b`, or are gone from it, as keys for checkInvariants' `drifting`.
- * Between two snapshots without a change by Duofari in between, these are
- * what a live page moves by itself.
- */
-export function verticalDrift(a, b) {
-  const drift = new Set();
-  for (const kind of ['text', 'controls']) {
-    const tops = new Map(b[kind].map((n) => [n.id, n.top]));
-    for (const n of a[kind]) {
-      const top = tops.get(n.id);
-      if (top === undefined || Math.abs(top - n.top) > 1) drift.add(`${kind}:${n.id}`);
-    }
-  }
-  return drift;
-}
-
-/**
  * Compares two snapshots, taken at the same scroll position, and returns a
  * list of human-readable failures.
- * @param {object} opts { C, left, right, strictExpect, vertical: false where layout may grow downwards,
- *                        drifting: text runs and controls (from verticalDrift) whose moves up or down don't count }
+ * @param {object} opts { C, left, right, strictExpect, vertical: false where layout may grow downwards }
  */
-export function checkInvariants(before, after, { C, left = false, right = true, strictExpect = true, vertical = true, drifting = new Set() } = {}) {
+export function checkInvariants(before, after, { C, left = false, right = true, strictExpect = true, vertical = true } = {}) {
   const failures = [];
   const vw = after.vw;
   const near = (a, b, eps = 1) => Math.abs(a - b) <= eps;
@@ -278,7 +259,7 @@ export function checkInvariants(before, after, { C, left = false, right = true, 
     const b = beforeText.get(t.id);
     if (b && (!near(b.left, t.left, 0.75) || !near(b.right, t.right, 0.75))) {
       failures.push(`text moved sideways: "${t.text}" ${b.left.toFixed(1)}–${b.right.toFixed(1)} → ${t.left.toFixed(1)}–${t.right.toFixed(1)}`);
-    } else if (b && vertical && !drifting.has(`text:${t.id}`) && !near(b.top, t.top)) {
+    } else if (b && vertical && !near(b.top, t.top)) {
       failures.push(`text moved vertically: "${t.text}" top ${b.top.toFixed(1)} → ${t.top.toFixed(1)}`);
     }
     const wasOut = b && (b.right > vw + 0.5 || b.left < -0.5);
@@ -298,7 +279,7 @@ export function checkInvariants(before, after, { C, left = false, right = true, 
     const a = afterControls.get(c.id);
     if (a && (!near(a.left, c.left, 0.75) || !near(a.right, c.right, 0.75))) {
       failures.push(`control moved: <${c.tag}> "${c.label}" ${c.left.toFixed(1)}–${c.right.toFixed(1)} → ${a.left.toFixed(1)}–${a.right.toFixed(1)}`);
-    } else if (a && vertical && !drifting.has(`controls:${c.id}`) && !near(a.top, c.top)) {
+    } else if (a && vertical && !near(a.top, c.top)) {
       failures.push(`control moved vertically: <${c.tag}> "${c.label}" top ${c.top.toFixed(1)} → ${a.top.toFixed(1)}`);
     }
   });
