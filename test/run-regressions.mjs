@@ -433,6 +433,281 @@ const ENGINE = [
       failures.push(...checkInvariants(before, await snapshot(p), { C }));
     },
   },
+
+  {
+    name: 'engine-r2-1',
+    what: 'a lifted fixed header stays lifted through a restyle that brings no translate',
+    html: page(`
+      .bar { position: fixed; left: 0; right: 0; height: 48px; box-sizing: border-box; padding: 12px 16px; background: #036; color: #fff; z-index: 5; }
+      #plain { top: 0; }
+      #eased { top: 56px; transition: all .3s; }
+      .bar.scrolled { background: #024; }
+      main { padding-top: 120px; }`,
+    `<header class="bar" id="plain">No transition</header><header class="bar" id="eased">Eased</header><main>${paragraphs(60)}</main>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      for (const id of ['plain', 'eased']) {
+        // Checked every frame for half a second after a scroll-driven class change.
+        const gaps = await p.evaluate(async (id) => {
+          const el = document.getElementById(id);
+          const lifted = () => { const rec = globalThis.Duofari.records.get(el); return !!(rec && rec.lifted); };
+          if (!lifted()) return -1;
+          el.classList.add('scrolled');
+          let n = 0;
+          const t0 = performance.now();
+          while (performance.now() - t0 < 500) {
+            await new Promise((r) => requestAnimationFrame(r));
+            if (!lifted()) n++;
+          }
+          return n;
+        }, id);
+        if (gaps) failures.push(`#${id}: ${gaps < 0 ? 'not lifted to begin with' : `unlifted for ${gaps} frames after a colour change`}`);
+      }
+    },
+  },
+
+  {
+    name: 'engine-r2-2',
+    what: 'a <body> that clips is checked again for content added later, and keeps no removed nodes',
+    html: page(`
+      html, body { overflow-x: hidden; }
+      header { background: #036; color: #fff; padding: 16px; }
+      .strip { white-space: nowrap; padding: 0 16px; }`,
+    `<header>Site</header><main id="main">${paragraphs(20)}</main>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const read = () => p.evaluate(() => {
+        const rec = globalThis.Duofari.records.get(document.body);
+        return { opened: !!rec, queued: rec && rec.added ? rec.added.size : 0, right: document.body.getBoundingClientRect().right };
+      });
+      if (!(await read()).opened) failures.push('<body> not opened to begin with');
+      // Short-lived nodes (placeholders, measuring probes) added straight into <body>.
+      await p.evaluate(async () => {
+        for (let i = 0; i < 30; i++) {
+          const d = Object.assign(document.createElement('div'), { textContent: 'x' });
+          document.body.append(d);
+          await new Promise((r) => setTimeout(r, 0));
+          d.remove();
+        }
+      });
+      await settle(p, 800);
+      const kept = await read();
+      if (kept.queued) failures.push(`<body> still holds ${kept.queued} added nodes after a scan`);
+      await p.evaluate(() => document.getElementById('main').insertAdjacentHTML('beforebegin',
+        '<div class="strip">Tags: Politics · Economy · Health · Sport · Culture · Science · Travel · Weather</div>'));
+      await settle(p, 800);
+      const { right } = await read();
+      if (right > VW + 0.5) failures.push(`tag strip added to <body> shows under the column (<body> clips at ${right})`);
+    },
+  },
+
+  {
+    name: 'engine-r2-3',
+    what: 'content that grows past an opened wrapper later is checked (drawer in a new wrapper, nowrap class, longer text)',
+    html: page(`
+      .wrap { overflow-x: hidden; }
+      .wrap header { background: #036; color: #fff; padding: 16px; }
+      .nav { position: relative; background: #eee; padding: 8px 16px; }
+      .drawer { position: absolute; top: 0; left: 100%; width: 260px; background: #fff; padding: 8px; }
+      .one-line { white-space: nowrap; }`,
+    `<div class="wrap" id="drawer"><header>Drawer</header><div class="nav" id="nav">Menu</div></div>
+      <div class="wrap" id="nowrap"><header>Tags</header><p id="tags">Politics Economy Health Sport Culture Science Travel Weather</p></div>
+      <div class="wrap" id="text"><header>Text</header><p id="link">Short</p></div>${paragraphs(10)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const clipRight = (id) => p.evaluate((id) => document.getElementById(id).getBoundingClientRect().right, id);
+      for (const id of ['drawer', 'nowrap', 'text']) if (!near(await clipRight(id), VW + C)) failures.push(`#${id} not opened to begin with`);
+      await p.evaluate(() => {
+        // A menu component mounting a wrapper that holds its drawer, a class
+        // that stops the tags wrapping, and a text update (as React makes it).
+        document.getElementById('nav').insertAdjacentHTML('beforeend',
+          '<div class="menu-root"><aside class="drawer"><a href="#">Home</a> <a href="#">News</a></aside></div>');
+        document.getElementById('tags').classList.add('one-line');
+        document.getElementById('link').firstChild.data = 'https://example.com/a/very/long/path/that/never/breaks/anywhere/at/all';
+      });
+      await settle(p, 800);
+      for (const [id, what] of [['drawer', 'drawer in an added wrapper'], ['nowrap', 'tags that stopped wrapping'], ['text', 'text that got longer']]) {
+        const right = await clipRight(id);
+        if (right > VW + 0.5) failures.push(`${what} shows under the column (wrapper clips at ${right})`);
+      }
+    },
+  },
+
+  {
+    name: 'engine-r2-4',
+    what: 'a toast that slides in with a transition is pinned centred',
+    html: page(`
+      .hero { position: relative; height: 260px; background: #333; color: #fff; }
+      .hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      .hero h1 { position: relative; margin: 0; padding: 16px; }
+      .toast { position: absolute; left: 50%; bottom: 16px; transform: translate(-50%, 24px); opacity: 0; transition: transform .6s, opacity .6s;
+        background: #fff; color: #000; padding: 6px 12px; white-space: nowrap; }
+      .toast.show { transform: translate(-50%, 0); opacity: 1; }`,
+    `<section class="hero" id="hero"><img src="img/banner.jpg" alt=""><h1>Title</h1></section>${paragraphs(20)}`),
+    async run({ p, failures }) {
+      const toast = () => p.evaluate(async () => {
+        const t = Object.assign(document.createElement('div'), { className: 'toast', textContent: 'Copied to clipboard' });
+        document.getElementById('hero').appendChild(t);
+        t.getBoundingClientRect();
+        t.classList.add('show');
+        await new Promise((r) => setTimeout(r, 1500));
+        const r = t.getBoundingClientRect();
+        t.remove();
+        return `${r.left.toFixed(1)}–${r.right.toFixed(1)}`;
+      });
+      const plain = await toast();
+      await injectDuofari(p);
+      const now = await toast();
+      if (now !== plain) failures.push(`toast moved off centre: ${plain} → ${now}`);
+    },
+  },
+
+  {
+    name: 'engine-r2-5',
+    what: 'background layers built from boxes (slides, a parallax backdrop) grow with their hero',
+    html: page(`
+      .hero { position: relative; height: 220px; background: #222; color: #fff; }
+      .slides, .parallax { position: absolute; inset: 0; }
+      .parallax { overflow: hidden; }
+      .slide, .backdrop { position: absolute; inset: 0; background: url(img/hero.jpg) center / cover; }
+      .shade { position: absolute; inset: 0; background: linear-gradient(transparent, #0008); }
+      .hero h1 { position: relative; margin: 0; padding: 16px; }`,
+    `<section class="hero"><div class="slides" id="slides"><div class="slide"></div><div class="slide" style="opacity: 0"></div></div>
+        <div class="shade"></div><h1>Slideshow</h1></section>
+      <section class="hero"><div class="parallax" id="parallax"><div class="backdrop" id="backdrop"></div></div><h1>Parallax</h1></section>${paragraphs(10)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      for (const id of ['slides', 'parallax', 'backdrop']) {
+        const right = await p.evaluate((id) => document.getElementById(id).getBoundingClientRect().right, id);
+        if (!near(right, VW + C)) failures.push(`#${id} ends at ${right}, not at the column's edge (${VW + C})`);
+      }
+    },
+  },
+
+  {
+    name: 'engine-r2-6',
+    what: "an icon drawn as a full-size layer's background image stays put",
+    html: page(`
+      .video { position: relative; height: 200px; background: #000; }
+      .play { position: absolute; inset: 0; background: url(img/square.jpg) center / 64px no-repeat; }
+      .promo { position: relative; height: 200px; background: #123; }
+      .promo::after { content: ''; position: absolute; inset: 0; background: url(img/square.jpg) 50% 50% / 80px no-repeat; }`,
+    `<section class="video" id="video"><div class="play" id="play"></div></section>${paragraphs(1)}
+      <section class="promo" id="promo"></section>${paragraphs(10)}`),
+    async run({ p, failures }) {
+      const measure = () => p.evaluate(() => {
+        // A centred background sits in the middle of the box it is positioned in.
+        const play = document.getElementById('play');
+        const cs = getComputedStyle(play);
+        const r = play.getBoundingClientRect();
+        const bl = parseFloat(cs.borderLeftWidth), br = parseFloat(cs.borderRightWidth);
+        const [a, b] = cs.backgroundOrigin === 'border-box' ? [r.left, r.right] : [r.left + bl, r.right - br];
+        return { icon: ((a + b) / 2).toFixed(1), layer: getComputedStyle(document.getElementById('promo'), '::after').width,
+          bands: ['video', 'promo'].map((id) => document.getElementById(id).getBoundingClientRect().right) };
+      });
+      const plain = await measure();
+      await injectDuofari(p);
+      const now = await measure();
+      if (now.icon !== plain.icon) failures.push(`play icon moved: centre ${plain.icon} → ${now.icon}`);
+      if (now.layer !== plain.layer) failures.push(`::after icon layer resized: ${plain.layer} → ${now.layer}`);
+      if (!now.bands.every((right) => near(right, VW + C))) failures.push(`bands not extended (right edges ${now.bands.join(', ')})`);
+    },
+  },
+
+  {
+    name: 'engine-r2-7',
+    what: 'a wrapper whose overflow is only margins, its own padding or invisible content is opened',
+    html: page(`
+      .site { overflow-x: hidden; }
+      .site header { background: #036; color: #fff; padding: 16px; }
+      .btn { display: inline-block; width: 100%; margin-right: 8px; box-sizing: border-box; }
+      #padded { padding: 0 12px; }
+      #padded header { margin: 0 -12px; }
+      .wide { width: 100%; padding: 0 4px; }
+      .marquee { visibility: hidden; white-space: nowrap; }`,
+    `<div class="site" id="margin"><header>Margin</header><span class="btn">Button</span></div>
+      <div class="site" id="padded"><header>Padded</header><div class="wide">A few px into the padding</div></div>
+      <div class="site" id="hidden"><header>Hidden</header><div class="marquee">Breaking news that is very long and never wraps at all here</div></div>
+      <div class="site" id="shadow"><header>Shadow</header><x-drawer></x-drawer><p>Text</p></div>${paragraphs(10)}
+      <script>customElements.define('x-drawer', class extends HTMLElement {
+        constructor() { super(); this.attachShadow({ mode: 'open' }).innerHTML =
+          '<style>:host { display: block; position: relative } nav { position: absolute; top: 0; left: 100%; width: 260px; visibility: hidden }</style><nav>Drawer menu links</nav>'; }
+      });</script>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      for (const id of ['margin', 'padded', 'hidden', 'shadow']) {
+        const right = await p.evaluate((id) => document.querySelector(`#${id} header`).getBoundingClientRect().right, id);
+        if (!near(right, VW + C)) failures.push(`#${id}: header inside the wrapper not extended (right edge ${right})`);
+      }
+    },
+  },
+
+  {
+    name: 'engine-r2-8',
+    what: 'a wrapper is opened again once the drawer that kept it shut is gone',
+    html: page(`
+      .site { overflow-x: hidden; }
+      .site header { background: #036; color: #fff; padding: 16px; }
+      .nav { position: relative; background: #eee; padding: 8px 16px; }
+      .drawer { position: absolute; top: 0; left: 100%; width: 260px; background: #fff; padding: 8px; }`,
+    `<div class="site" id="site"><header id="hdr">Site</header><div class="nav" id="nav">Menu</div><main id="main">${paragraphs(20)}</main></div>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const right = () => p.evaluate(() => document.getElementById('hdr').getBoundingClientRect().right);
+      if (!near(await right(), VW + C)) failures.push('header not extended to begin with');
+      await p.evaluate(() => document.getElementById('nav').insertAdjacentHTML('beforeend', '<aside class="drawer" id="drawer"><a href="#">Home</a></aside>'));
+      await settle(p, 800);
+      if (!near(await right(), VW)) failures.push('wrapper not shut while the drawer is open');
+      await p.evaluate(() => document.getElementById('drawer').remove());
+      await settle(p, 800);
+      const now = await right();
+      if (!near(now, VW + C)) failures.push(`header not extended again after the drawer closed (right edge ${now})`);
+    },
+  },
+
+  {
+    name: 'engine-r2-9',
+    what: 'a positioned pseudo-element past the first thousand nodes of a wrapper stays put',
+    html: page(`
+      .site { position: relative; overflow-x: hidden; }
+      .site header { background: #036; color: #fff; padding: 16px; }
+      .note::after { content: 'NEW'; position: absolute; right: 16px; background: #fc0; }`,
+    `<div class="site"><header>My Blog</header><article id="art"></article><p class="note" id="note">Note</p></div>
+      <script>const art = document.getElementById('art');
+        for (let i = 0; i < 800; i++) art.insertAdjacentHTML('beforeend', '<p>Para <b>' + i + '</b></p>');</script>`),
+    async run({ p, failures }) {
+      const left = () => p.evaluate(() => getComputedStyle(document.getElementById('note'), '::after').left);
+      const plain = await left();
+      await injectDuofari(p);
+      const now = await left();
+      if (now !== plain) failures.push(`::after of a static paragraph moved: left ${plain} → ${now}`);
+    },
+  },
+
+  {
+    name: 'engine-r2-10',
+    what: "extending a band's border reads no pseudo-elements of what is inside it",
+    html: page(`
+      header { position: sticky; top: 0; background: #036; color: #fff; padding: 12px 16px; z-index: 9; }
+      .mega { visibility: hidden; height: 0; overflow: hidden; }`,
+    `<header id="hdr"><b>Site</b><nav class="mega"><ul>${Array.from({ length: 300 }, (_, i) => `<li><a href="#">Item ${i}</a></li>`).join('')}</ul></nav></header>
+      ${paragraphs(20)}`),
+    async run({ p, failures }) {
+      // Pseudo-element styles cost several times more to read than boxes.
+      await p.evaluate(() => {
+        const own = globalThis.getComputedStyle;
+        globalThis.pseudoReads = 0;
+        globalThis.getComputedStyle = function (el, pseudo) {
+          if (pseudo) globalThis.pseudoReads++;
+          return own.call(this, el, pseudo);
+        };
+      });
+      await injectDuofari(p);
+      const s = await p.evaluate(() => ({ reads: globalThis.pseudoReads, right: document.getElementById('hdr').getBoundingClientRect().right }));
+      if (!near(s.right, VW + C)) failures.push(`header not extended (right edge ${s.right})`);
+      if (s.reads > 10) failures.push(`${s.reads} pseudo-element styles read to extend it`);
+    },
+  },
 ];
 
 const CASES = [...ENGINE, ...LIFECYCLE];

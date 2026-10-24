@@ -16,7 +16,6 @@
   const EDGE_EPS = 1.25;     // px tolerance when checking an extended edge
   const HIDDEN_SCAN_LIMIT = 12000;
   const ABS_SCAN_LIMIT = HIDDEN_SCAN_LIMIT; // past these the padding recipe isn't used
-  const ABS_PSEUDO_LIMIT = 1000;
   const ABS_KEEP_LIMIT = 400;
   const LATE_SCAN_LIMIT = 2000;             // per scan, for positioned boxes that appear later
   const MARK = 'data-duofari';
@@ -179,24 +178,30 @@
    * Runs `fn` with CSS transitions switched off on `els`. Transitions would
    * animate our changes (and make the boxes we measure report their start
    * values), and also animate reverts. Once the new style has been computed,
-   * restoring the transition property starts nothing.
+   * restoring the transition property starts nothing. `keepRunning` zeroes
+   * the durations instead, which starts nothing new either but leaves the
+   * page's running transitions alone (`transition: none` cancels them).
    */
-  function withoutTransitions(els, fn) {
+  function withoutTransitions(els, fn, { keepRunning = false } = {}) {
+    const off = keepRunning ? { 'transition-duration': '0s', 'transition-delay': '0s' } : { transition: 'none' };
     const saved = [];
     for (const el of els) {
       if (!el || !el.style || entryAttrs.has(el)) continue;
-      saved.push([el, el.style.getPropertyValue('transition'), el.style.getPropertyPriority('transition'), el.getAttribute('style')]);
+      const props = Object.keys(off).map((p) => [p, el.style.getPropertyValue(p), el.style.getPropertyPriority(p)]);
+      saved.push([el, props, el.getAttribute('style')]);
       entryAttrs.set(el, el.getAttribute('style'));
-      el.style.setProperty('transition', 'none', 'important');
+      for (const [p, value] of Object.entries(off)) el.style.setProperty(p, value, 'important');
     }
     try {
       return fn();
     } finally {
-      for (const [el, value, priority, attr] of saved) {
+      for (const [el, props, attr] of saved) {
         entryAttrs.delete(el);
         getComputedStyle(el).transitionProperty; // flush the style with transitions off
-        if (value) el.style.setProperty('transition', value, priority);
-        else el.style.removeProperty('transition');
+        for (const [p, value, priority] of props) {
+          if (value) el.style.setProperty(p, value, priority);
+          else el.style.removeProperty(p);
+        }
         // Touching `transition` re-serialises the style attribute, so tidy it
         // last: back to the page's own attribute if nothing of ours is left.
         const rec = records.get(el);
@@ -319,17 +324,6 @@
     return true;
   }
 
-  function skipSubtree(walker, node) {
-    walker.currentNode = node;
-    let next = walker.nextSibling();
-    let up = node;
-    while (!next && (up = walker.parentNode())) {
-      if (up === walker.root) return null;
-      next = walker.nextSibling();
-    }
-    return next;
-  }
-
   /** Where an element's content (its scrollable overflow) ends on the column side. */
   function contentReach(el, r, sides) {
     const start = r.left + el.clientLeft;
@@ -345,30 +339,42 @@
    */
   function hidesOverflow(el, sides, C, vw) {
     // The walk sees element boxes only. Overflow that none of them accounts
-    // for is text, a pseudo-element or shadow content: assume it shows.
+    // for is text, a pseudo-element or closed shadow content: assume it
+    // shows. Scrollable overflow includes the clipper's own end padding.
     const box = el.getBoundingClientRect();
-    const reach = contentReach(el, box, sides);
+    const end = px(getComputedStyle(el)[sides.right ? 'paddingRight' : 'paddingLeft']);
+    const reach = contentReach(el, box, sides) + (sides.right ? -end : end);
+    const further = (a, b) => (sides.right ? Math.max(a, b) : Math.min(a, b));
     let explained = box.left + el.clientLeft + (sides.right ? el.clientWidth : 0);
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_ELEMENT);
+    const overflows = sides.right ? reach > explained + 1 : reach < explained - 1;
+    const stack = [];
+    const enter = (node) => {
+      for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
+      if (node.shadowRoot) for (let i = node.shadowRoot.children.length - 1; i >= 0; i--) stack.push(node.shadowRoot.children[i]);
+    };
+    enter(el);
     let seen = 0;
-    let node = walker.nextNode();
-    while (node) {
+    while (stack.length) {
       if (++seen > HIDDEN_SCAN_LIMIT) return true; // too big to be sure: assume it does
+      const node = stack.pop();
       const r = node.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0) explained = sides.right ? Math.max(explained, r.right) : Math.min(explained, r.left);
-      if (records.has(node) || node.hasAttribute('data-duofari-ui')) {
-        node = skipSubtree(walker, node);
-        continue;
+      const sized = r.width > 0 && r.height > 0;
+      let ncs = null;
+      if (sized && overflows) {
+        // A box accounts for overflow up to its margin edge (inline-level
+        // boxes' margins count), and an invisible one for its own content
+        // too (a hidden marquee's text).
+        ncs = getComputedStyle(node);
+        explained = further(explained, sides.right ? r.right + Math.max(0, px(ncs.marginRight)) : r.left - Math.max(0, px(ncs.marginLeft)));
+        if (ncs.visibility !== 'visible') explained = further(explained, contentReach(node, r, sides));
       }
-      if (r.width > 0 && r.height > 0) {
+      if (records.has(node) || node.hasAttribute('data-duofari-ui')) continue;
+      if (sized) {
         if (inStrip(r.left, r.right, sides, C, vw) && shows(node, el)) return true;
         // A descendant that clips within the viewport keeps its own overflow hidden.
-        if (r.left >= -0.5 && r.right <= vw + 0.5 && clips(node, getComputedStyle(node))) {
-          node = skipSubtree(walker, node);
-          continue;
-        }
+        if (r.left >= -0.5 && r.right <= vw + 0.5 && clips(node, ncs || getComputedStyle(node))) continue;
       }
-      node = walker.nextNode();
+      enter(node);
     }
     return sides.right ? reach > explained + 1 : reach < explained - 1;
   }
@@ -413,14 +419,14 @@
 
   /**
    * Absolutely positioned boxes whose containing block is `el`, and (with
-   * `pseudos`) positioned ::before/::after of the static boxes in between,
-   * whose containing block is `el` too. Their position depends on el's
+   * `pseudos`) the static boxes in between, whose positioned ::before/::after
+   * have `el` as their containing block too. Their position depends on el's
    * padding box, which the padding recipe enlarges. "Cover" layers fill that
    * padding box (a hero image at inset: 0, a dimming overlay) and are meant
    * to grow with it. `truncated` means the walk stopped before seeing them all.
    */
   function absoluteChildren(el, cs, before, { limit = ABS_SCAN_LIMIT, pseudos = false } = {}) {
-    const out = { kids: [], pseudos: [], truncated: false };
+    const out = { kids: [], statics: [], truncated: false };
     if (!containsAbsolute(cs)) return out;
     const fixedToo = containsFixed(cs);
     const stack = [...el.children].reverse();
@@ -449,9 +455,7 @@
       }
       // Descendants of a nested containing block are positioned against it.
       if (positioned || containsAbsolute(ncs)) continue;
-      // Pseudo-elements cost several times more to read than boxes, so only
-      // those of the first ABS_PSEUDO_LIMIT nodes are checked.
-      if (pseudos && seen <= ABS_PSEUDO_LIMIT) out.pseudos.push(...pseudoBoxes(node, before));
+      if (pseudos) out.statics.push(node);
       for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
     }
     return out;
@@ -460,17 +464,19 @@
   /**
    * Whether a layer that fills the padding box may grow with it: a picture
    * fitted with object-fit cover or fill (re-cropped, not stretched), or a
-   * textless box holding only cover-fitted pictures that fill it (a
-   * <picture>, a media wrapper) or nothing at all (a tint, a background
-   * image). A layer with foreground in it (a centred logo, a contained
-   * product shot) keeps its place.
+   * textless box of background art (a tint, slides, a parallax backdrop)
+   * whose pictures are cover-fitted and fill it. A layer with foreground in
+   * it (a centred logo, a contained product shot, a play icon drawn as a
+   * background image) keeps its place.
    */
   function growsWithBox(node, rect) {
     if (/^(img|video)$/.test(node.localName)) return /^(cover|fill)$/.test(getComputedStyle(node).objectFit);
-    if (/^(canvas|svg)$/.test(node.localName) || !isArt(node)) return false;
+    if (/^(canvas|svg)$/.test(node.localName) || !isArt(node) || !scalesWithBox(getComputedStyle(node))) return false;
     for (const inner of node.querySelectorAll('*')) {
-      if (inner.localName === 'source') continue;
-      if (!/^(img|video)$/.test(inner.localName) || getComputedStyle(inner).objectFit !== 'cover') return false;
+      const ics = getComputedStyle(inner);
+      if (!scalesWithBox(ics)) return false;
+      if (!/^(img|video|canvas|svg)$/.test(inner.localName)) continue;
+      if (!/^(img|video)$/.test(inner.localName) || ics.objectFit !== 'cover') return false;
       const r = inner.getBoundingClientRect();
       if (!close(r.left, rect.left, 1.5) || !close(r.right, rect.right, 1.5)) return false;
     }
@@ -505,8 +511,8 @@
       const box = { el, which, left: cs.left, right: cs.right, width: cs.width, top: cs.top, height: cs.height };
       const padWidth = before.padRight - before.padLeft;
       // Only an empty one (a tint, a background image) grows with the box;
-      // one with text (a play label, a badge) keeps its place.
-      box.cover = cs.content === '""' && close(px(cs.left), 0, 1.5) && close(px(cs.width), padWidth, 1.5);
+      // one with text or an icon (a play label, a badge) keeps its place.
+      box.cover = cs.content === '""' && scalesWithBox(cs) && close(px(cs.left), 0, 1.5) && close(px(cs.width), padWidth, 1.5);
       out.push(box);
     }
     return out;
@@ -564,22 +570,30 @@
   }
 
   /**
-   * background-origin per layer for an extended box: layers that scale with
-   * the box (gradients, cover, percentages, tiles) take the whole border box;
-   * a positioned no-repeat image (an icon, a centred logo) keeps the padding
-   * box, so it stays exactly where it was and only the colour extends.
+   * Per background layer, whether it scales with the box (gradients, cover,
+   * percentages, tiles), unlike a positioned no-repeat image (an icon, a
+   * centred logo), which stays its size and moves when the box grows.
    */
-  function backgroundOrigins(cs) {
-    const images = splitList(cs.backgroundImage || 'none');
+  function layersScale(cs) {
     const sizes = splitList(cs.backgroundSize || 'auto');
     const repeats = splitList(cs.backgroundRepeat || 'repeat');
+    return splitList(cs.backgroundImage || 'none').map((image, i) =>
+      !/url\(/.test(image) || /cover|%/.test(sizes[i % sizes.length]) || !/no-repeat/.test(repeats[i % repeats.length]));
+  }
+
+  function scalesWithBox(cs) {
+    return layersScale(cs).every(Boolean);
+  }
+
+  /**
+   * background-origin per layer for an extended box: layers that scale with
+   * the box take the whole border box; a positioned no-repeat image keeps
+   * the padding box, so it stays exactly where it was and only the colour
+   * extends.
+   */
+  function backgroundOrigins(cs) {
     const origins = splitList(cs.backgroundOrigin || 'padding-box');
-    return images.map((image, i) => {
-      const size = sizes[i % sizes.length];
-      const repeat = repeats[i % repeats.length];
-      const scales = !/url\(/.test(image) || /cover|%/.test(size) || !/no-repeat/.test(repeat);
-      return scales ? 'border-box' : origins[i % origins.length];
-    }).join(', ');
+    return layersScale(cs).map((scales, i) => (scales ? 'border-box' : origins[i % origins.length])).join(', ');
   }
   D.splitList = splitList;
 
@@ -687,12 +701,15 @@
     const before = boxes(el);
     const abs = absoluteChildren(el, before.cs, before, { pseudos: true });
     const absKids = abs.kids;
-    const pseudos = [...pseudoBoxes(el, before), ...abs.pseudos];
+    const own = pseudoBoxes(el, before);
+    // Pseudo-elements cost several times more to read than boxes, and those
+    // inside only move with the padding box: read them for that recipe.
+    let inner = null;
     const sample = contentSample(el);
     const vw = layoutWidth !== undefined ? layoutWidth : before.right;
     // Cover layers only grow with the padding box. Extending just the border
     // would leave a seam of the bare background beside them.
-    const hasCover = absKids.some((k) => k.cover) || pseudos.some((p) => p.cover);
+    const hasCover = absKids.some((k) => k.cover) || own.some((p) => p.cover);
     let order = hasCover ? recipes.filter((r) => r === 'padding') : recipes.slice();
     const sig = signature(el, before.cs);
     const cached = recipeCache.get(sig);
@@ -707,6 +724,8 @@
     for (const recipe of order) {
       // Positioned boxes the walk didn't reach could move into the column.
       if (recipe === 'padding' && (revealsHidden || abs.truncated)) continue;
+      if (recipe === 'padding' && !inner) inner = abs.statics.flatMap((node) => pseudoBoxes(node, before));
+      const pseudos = recipe === 'padding' ? [...own, ...inner] : own;
       const tries = cached && cached.recipe === recipe ? [cached.compensate, !cached.compensate] : [false, true];
       for (const compensate of tries) {
         const result = withoutTransitions([el], () => {
@@ -729,6 +748,8 @@
             rec.sides = { ...sides };
             rec.expect = expectation(el, after);
             rec.clips = recipe === 'padding' && clips(el, before.cs); // its clip now reaches into the column
+            // How far its content reaches now, so content that grows past it later is checked.
+            if (rec.clips) rec.reach = contentReach(el, el.getBoundingClientRect(), sides);
             rec.seen = new WeakSet(absKids.map((k) => k.el)); // positioned boxes that aren't latecomers
             return 'ok';
           }
@@ -904,9 +925,9 @@
   /**
    * Re-checks an applied element: its edges still sit where the extension
    * put them, its parent's content box hasn't moved, its pictures are the
-   * ones it was measured with, and nothing added to a clipper since shows in
-   * the strip it opened. Height changes are fine for boxes (headers that
-   * shrink on scroll); media heights are ours.
+   * ones it was measured with, and nothing added to or grown in a clipper
+   * since shows in the strip it opened. Height changes are fine for boxes
+   * (headers that shrink on scroll); media heights are ours.
    */
   D.stillValid = function stillValid(rec) {
     const el = rec.el;
@@ -925,6 +946,12 @@
     }
     for (const pin of rec.pins) {
       if (!pin.el.isConnected || !D.stylesIntact(pin) || sourceKey(pin.el) !== pin.source) return false;
+    }
+    if (rec.clips) {
+      // Content that has grown past it since (a menu added inside a wrapper,
+      // text that stopped wrapping or got longer) may be what the clip hid.
+      const reach = contentReach(el, b, rec.sides);
+      if (rec.sides.right ? reach > rec.reach + 1 : reach < rec.reach - 1) return false;
     }
     if (rec.added) {
       const added = rec.added;
@@ -982,7 +1009,6 @@
     const kids = absoluteChildren(rec.el, cs, boxes(rec.el), { limit: LATE_SCAN_LIMIT }).kids.filter((k) =>
       !k.cover && !pinned.has(k.el) && !records.has(k.el) && k.rect.width > 0 && k.rect.height > 0);
     if (!kids.some((k) => !rec.seen.has(k.el) || inStrip(k.rect.left, k.rect.right, rec.sides, rec.C, vw))) return true;
-    for (const k of kids) rec.seen.add(k.el);
     const where = withoutExtension(rec, () => kids.map((k) => {
       const rect = k.el.getBoundingClientRect();
       return { rect, place: placement(k.el, rect, getComputedStyle(k.el)) };
@@ -992,15 +1018,20 @@
     const revealed = (w, i) => inStrip(w.rect.left, w.rect.right, rec.sides, rec.C, vw) && shows(kids[i].el, rec.el);
     if (rec.clips && where.some(revealed)) return false;
     kids.forEach((k, i) => {
-      if (sameRect(where[i].rect, k.rect)) return;
-      const pin = record(k.el, 'pin');
-      pin.owner = rec;
-      rec.pins.push(pin);
-      withoutTransitions([k.el], () => setStyles(pin, pinPlace(where[i].place, rec.sides.left ? rec.C : 0)));
-      if (!sameRect(where[i].rect, k.el.getBoundingClientRect())) {
-        rec.pins.pop();
-        revert(k.el);
+      if (!sameRect(where[i].rect, k.rect)) {
+        const pin = record(k.el, 'pin');
+        pin.owner = rec;
+        rec.pins.push(pin);
+        // Most enter with a transition (a toast sliding up). It keeps
+        // running, so the box is compared at the same point of it.
+        withoutTransitions([k.el], () => setStyles(pin, pinPlace(where[i].place, rec.sides.left ? rec.C : 0)), { keepRunning: true });
+        if (!sameRect(where[i].rect, k.el.getBoundingClientRect())) {
+          rec.pins.pop();
+          revert(k.el);
+          return; // tried again on a later scan
+        }
       }
+      rec.seen.add(k.el);
     });
     return true;
   };
@@ -1043,6 +1074,44 @@
     }
   };
 
+  /** Whether a change to `prop` would be animated: its transition entry (or `all`'s) has a duration. */
+  function animates(cs, prop) {
+    const names = splitList(cs.transitionProperty || 'all');
+    const durations = splitList(cs.transitionDuration || '0s');
+    let duration = 0;
+    names.forEach((name, i) => {
+      if (name === 'all' || name === prop) duration = parseFloat(durations[i % durations.length]) || 0;
+    });
+    return duration > 0;
+  }
+
+  /**
+   * Whether the page now gives a lifted band a translate of its own, read
+   * with the identity translate off for a moment. Zero durations keep that
+   * from starting anything, and the page's running transitions (a colour
+   * change on scroll) carry on with the band still lifted.
+   */
+  function bringsTranslate(rec) {
+    const el = rec.el;
+    const style = el.style;
+    const value = rec.applied.get('translate');
+    if (!ours(style, 'translate', value)) return false; // the page has set its own since: it shows already
+    // Looking writes styles, which come back here as a restyle: a state
+    // looked at already is skipped.
+    const state = () => `${el.getAttribute('class')}|${el.getAttribute('style')}`;
+    if (rec.looked === state()) return false;
+    const orig = rec.saved.get('translate');
+    const brings = withoutTransitions([el], () => {
+      if (orig && orig.value) style.setProperty('translate', orig.value, orig.priority);
+      else style.removeProperty('translate');
+      const own = getComputedStyle(el).translate;
+      style.setProperty('translate', value, 'important');
+      return own !== 'none';
+    }, { keepRunning: true });
+    rec.looked = state();
+    return brings;
+  }
+
   /** Marks an applied element for re-measuring from the page's own styles on the next scan. */
   D.markDirty = function markDirty(el) {
     const rec = records.get(el);
@@ -1052,6 +1121,6 @@
     // The identity translate would hide a `translate` the restyle brings in
     // and stop its transition from running. Take it off now; it goes back
     // on when the band is extended again.
-    if (owner.lifted && /\b(all|translate)\b/.test(getComputedStyle(owner.el).transitionProperty)) D.unlift(owner);
+    if (owner.lifted && animates(getComputedStyle(owner.el), 'translate') && bringsTranslate(owner)) D.unlift(owner);
   };
 })();

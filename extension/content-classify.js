@@ -44,6 +44,8 @@
 
   /** Elements we've tried and couldn't extend cleanly, keyed to the layout they failed in. */
   const rejected = new WeakMap();
+  /** Clippers we couldn't open, keyed to the layout and how far their content reaches. */
+  const unopened = new WeakMap();
   /** Elements whose extension the page keeps undoing; left alone for this page view. */
   const blocked = new WeakSet();
   D.blocked = blocked;
@@ -269,6 +271,16 @@
     // Whatever Duofari writes into editable content would be saved with it.
     for (const [el, rec] of D.records) if (!rec.owner && el.isContentEditable) D.revert(el);
 
+    // <body> is never walked itself, but it can be a clipper Duofari opened.
+    const bodyRec = D.records.get(body);
+    if (bodyRec && bodyRec.dirty && [body, ...bodyRec.pins.map((p) => p.el)].some(transitioning)) {
+      stats.waiting = true;
+    } else if (bodyRec && !(D.stillValid(bodyRec) && D.repinLatecomers(bodyRec, vw))) {
+      noteReapply(bodyRec);
+      D.revert(body);
+      stats.reverted++;
+    }
+
     const stack = childElements(body).reverse();
     while (stack.length) {
       if (stats.visited >= ctx.budget || (ctx.deadline && performance.now() > ctx.deadline)) {
@@ -355,9 +367,10 @@
         // there. Everything else keeps its padding box: positioned children,
         // pseudo-elements and icons stay exactly where they were.
         const recipes = scrollsX(el, cs) || carousel ? ['border'] : D.clips(el, cs) ? ['padding', 'border'] : ['border', 'padding'];
-        if (applyGuarded(el, stats, sides, C, vw, () => D.extendBox(el, 'band', sides, C, { recipes, layoutWidth: vw }))) {
+        const done = applyGuarded(el, stats, sides, C, vw, () => D.extendBox(el, 'band', sides, C, { recipes, layoutWidth: vw }));
+        if (done) {
           if (cs.position === 'fixed') liftFixed(el, cs);
-        } else {
+        } else if (done === null) {
           rejected.set(el, key);
         }
       }
@@ -410,10 +423,16 @@
 
   /**
    * Runs an extension and undoes it if it gave an enclosing scroll container
-   * (an app shell, a list) horizontal overflow it didn't have.
+   * (an app shell, a list) horizontal overflow it didn't have. Returns null
+   * if it failed, and false if a clipper around the element couldn't be
+   * opened (that is retried, see ensureClippers).
    */
   function applyGuarded(el, stats, sides, C, vw, apply) {
-    if (!ensureClippers(el, sides, C, stats, vw)) return null;
+    const width = el.getBoundingClientRect().width;
+    if (!ensureClippers(el, sides, C, stats, vw)) return false;
+    // A layer filling a clipper just opened (a backdrop at inset: 0) grew
+    // with it, and reaches into the column already.
+    if (Math.abs(el.getBoundingClientRect().width - width) > TOL) return false;
     const scroller = nearestScroller(el);
     const before = scroller ? scroller.scrollWidth - scroller.clientWidth : 0;
     const done = apply();
@@ -468,7 +487,7 @@
         if (likelyGraphic(el, rect) || stacked(el, rect, vw)) return null;
       }
       const done = applyGuarded(el, stats, sides, C, vw, () => D.extendMedia(el, sides, C, { mode: reveal ? 'reveal' : 'fill' }));
-      return done || 'rejected';
+      return done === null ? 'rejected' : done;
     }
 
     if (!s.breakout || el.localName !== 'img') return null;
@@ -488,7 +507,7 @@
     const anchor = fullWidthAncestor(el, vw);
     if (!anchor || !plainBetween(el, anchor, colorCache)) return null;
     const grew = applyGuarded(el, stats, sides, C, vw, () => (D.breakOut(el, sides, C, vw) === null ? null : 'grow'));
-    return grew || 'rejected';
+    return grew === null ? 'rejected' : grew;
   }
 
   function fullWidthAncestor(el, vw) {
@@ -511,8 +530,15 @@
       if (rec && rec.recipe === 'padding' && sameSides(rec.sides, sides)) continue;
       if (anchors(getComputedStyle(clipper))) return false;
       if (rec) D.revert(clipper);
+      // What it hides past the edge (a menu that is open) can go away again,
+      // so a failure only holds while its content reaches as far.
+      const key = `${vw}|${C}|${sides.left}|${sides.right}|${clipper.getBoundingClientRect().width}|${clipper.scrollWidth}`;
+      if (unopened.get(clipper) === key) return false;
       const done = D.extendBox(clipper, rec ? rec.kind : 'clipper', sides, C, { recipes: ['padding'], layoutWidth: vw });
-      if (!done) return false;
+      if (!done) {
+        unopened.set(clipper, key);
+        return false;
+      }
       stats.applied++;
     }
     return true;
