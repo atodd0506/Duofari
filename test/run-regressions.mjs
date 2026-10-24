@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Regression cases for engine defects found in review. Each case builds a
+// Regression cases for defects found in review. Each case builds a
 // small page around one defect, runs Duofari on it in an emulated folded
 // iPhone Duo, and checks the behaviour the fix restored. Every case failed
 // before its fix.
@@ -41,7 +41,12 @@ const turnOff = (p) => p.evaluate(() => {
   globalThis.Duofari.controller.run();
 });
 
-const CASES = [
+// Controller, guard and popup-facing behaviour (content-main.js, content-guard.js, content-geometry.js).
+const LIFECYCLE = [
+];
+
+// The engine: choosing, extending and restoring boxes (content-bleed.js, content-classify.js).
+const ENGINE = [
   {
     name: 'engine-1',
     what: 'a lifted fixed header stays extended through later scans',
@@ -429,6 +434,8 @@ const CASES = [
     },
   },
 ];
+
+const CASES = [...ENGINE, ...LIFECYCLE];
 
 const filter = process.argv.slice(2);
 const { chromium } = await loadPlaywright();
