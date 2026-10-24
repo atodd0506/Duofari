@@ -111,6 +111,10 @@
   "statusNoAccessDetail": {
     "message": "Allow it on all websites so it can extend pages as they open."
   },
+  "statusThisPageOnly": {
+    "message": "For now Duofari can see only this page. Allow it on all websites so it can extend pages as they open.",
+    "description": "Shown when Safari let Duofari run on the open page only because the popup was opened, until the tab moves to another site."
+  },
   "actionAllow": {
     "message": "Allow on All Websites",
     "description": "Button that asks Safari for permission to run on all websites."

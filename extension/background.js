@@ -12,15 +12,16 @@ async function refreshDevice() {
   try {
     const reply = await api.runtime.sendNativeMessage('application.id', { type: 'device' });
     if (reply && reply.screenWidth > 0 && reply.screenHeight > 0) {
-      await api.storage.local.set({
-        device: {
-          screenWidth: reply.screenWidth,
-          screenHeight: reply.screenHeight,
-          scale: reply.scale || 0,
-          model: reply.model || '',
-          checked: Date.now(),
-        },
-      });
+      const device = {
+        screenWidth: reply.screenWidth,
+        screenHeight: reply.screenHeight,
+        scale: reply.scale || 0,
+        model: reply.model || '',
+      };
+      // Every open tab starts over from the page's own layout when this
+      // changes, and the popup asks on every open: only write news.
+      const { device: stored } = await api.storage.local.get('device');
+      if (JSON.stringify(stored) !== JSON.stringify(device)) await api.storage.local.set({ device });
     }
   } catch (error) {
     console.warn('[Duofari] could not ask the app about the device', error);

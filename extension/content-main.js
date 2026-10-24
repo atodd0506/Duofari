@@ -6,7 +6,17 @@
   const D = (globalThis.Duofari = globalThis.Duofari || {});
   if (D.controller) return;
   if (globalThis.top !== globalThis.self) return;
-  if (!(document.documentElement instanceof HTMLElement)) return; // SVG, XML
+  if (!(document.documentElement instanceof HTMLElement)) {
+    // An SVG or XML file shown on its own: nothing to change, but the popup
+    // should say so rather than offer to apply Duofari.
+    if (!D.documentListener && D.api && D.api.runtime && D.api.runtime.onMessage) {
+      D.documentListener = true;
+      D.api.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (message && message.type === 'duofari:status') sendResponse({ hostname: location.hostname, active: false, reason: 'unsupported-document' });
+      });
+    }
+    return;
+  }
 
   const MIN_INTERVAL = 300;
   const RESIZE_SETTLE = 250;
@@ -14,17 +24,22 @@
   const SLICE_MS = 12;          // keep each scan short; the rest continues in the next one
   const FLIP_LIMIT = 4;         // on/off changes within FLIP_WINDOW before Duofari stands down
   const FLIP_WINDOW = 10000;
+  const META_LIMIT = 5;         // viewport meta repairs within META_WINDOW before leaving it to the page
+  const META_WINDOW = 10000;
+  const TEXT_QUIET = 5000;      // text changing in one element brings a scan at most this often
 
   const state = {
     settings: { ...D.DEFAULTS },
     geometry: null,
+    pose: '',
     active: false,
     reason: 'starting',
+    ownAllowance: 0,
     allowance: 0,
     vwIncludesColumn: false,
     vwExcess: 0,
     meta: null,
-    metaRewrites: 0,
+    metaRewrites: [],
     debug: null,
     timer: 0,
     lastRun: 0,
@@ -34,6 +49,7 @@
     unstable: false,
     observedRoots: new WeakSet(),
     mutationRates: new WeakMap(),
+    textScans: new WeakMap(),
   };
 
   // ---------------------------------------------------------------------------
@@ -57,7 +73,24 @@
     if (document.hidden) return;
     const s = state.settings;
     const geo = D.measureColumn(s);
-    if (geo.zoomed) return; // keep things as they are until the user zooms back out
+    // Folding, unfolding and rotating are the user's doing, not the page
+    // being unstable: only on/off changes within one pose count.
+    const pose = `${Math.round(geo.layoutWidth)}|${screen.orientation ? screen.orientation.type : globalThis.orientation}`;
+    if (pose !== state.pose) {
+      state.pose = pose;
+      state.flips = [];
+      state.unstable = false;
+    }
+    const site = D.siteState(s, location.hostname);
+    const off = !s.enabled ? 'disabled' : site === 'off' ? 'site-disabled' : site === 'excluded' ? 'excluded-site'
+      : state.unstable ? 'unstable' : '';
+    if (geo.zoomed) {
+      // Keep things as they are until the user zooms back out, unless
+      // Duofari was switched off meanwhile.
+      if (off && state.active) deactivate();
+      if (!state.active) state.reason = off || 'zoomed';
+      return;
+    }
     if (state.active && D.guard.drifted()) {
       // Rects would be measured while the page is shifted sideways; wait for
       // the guard to put it back.
@@ -65,10 +98,8 @@
       return;
     }
 
-    const site = D.siteState(s, location.hostname);
-    let want = s.enabled && site === 'on' && geo.width > 0 && !state.unstable;
-    state.reason = !s.enabled ? 'disabled' : site === 'off' ? 'site-disabled' : site === 'excluded' ? 'excluded-site'
-      : state.unstable ? 'unstable' : geo.reason;
+    let want = !off && geo.width > 0;
+    state.reason = off || geo.reason;
 
     if (want !== state.active && noteFlip()) {
       want = false;
@@ -109,6 +140,7 @@
     state.lastScrollY = globalThis.scrollY;
     // The rest of a cut-short scan, or elements waiting for a transition to end.
     if (stats.truncated || stats.waiting) schedule(60);
+    updateAllowance(geo.width);
 
     D.guard.enable({
       baseScale: geo.scale,
@@ -124,11 +156,27 @@
 
   function activate() {
     // Measure the page's own horizontal overflow before changing anything.
-    state.allowance = D.guard.measureAllowance();
+    state.ownAllowance = D.guard.measureAllowance();
     state.vwIncludesColumn = probeViewportUnits();
-    if (state.vwIncludesColumn && state.allowance <= state.vwExcess + 1) state.allowance = 0;
+    if (state.vwIncludesColumn && state.ownAllowance <= state.vwExcess + 1) state.ownAllowance = 0;
+    state.allowance = state.ownAllowance;
     fixViewportMeta();
     state.active = true;
+  }
+
+  /**
+   * The page's own content can make it wider after activation (a wide table
+   * on a client-rendered route, lazy content) and narrower again. Duofari's
+   * extensions widen it by at most C, so overflow beyond that is the page's:
+   * it stays reachable, with no touch lock or meta pin in the meantime.
+   */
+  function updateAllowance(C) {
+    const overflow = D.guard.measureAllowance();
+    const allowance = overflow > C + 1 ? overflow : state.ownAllowance;
+    if (allowance === state.allowance) return;
+    state.allowance = allowance;
+    if (allowance >= 1) restoreViewportMeta();
+    else fixViewportMeta();
   }
 
   function deactivate() {
@@ -177,8 +225,9 @@
   // Viewport meta. WebKit fits a page without an initial scale to its content
   // width, and lets the minimum zoom follow the content width down, so content
   // reaching under the column would zoom the page out to 382/466. Pin both to
-  // 1 — only on pages whose own content fits, where zooming out below 1 never
-  // showed anything anyway. Zooming in is untouched.
+  // 1 (the minimum to the page's own initial scale if that is lower) — only on
+  // pages whose own content fits, where zooming out further never showed
+  // anything anyway. Zooming in is untouched.
 
   function lastViewportMeta() {
     const metas = document.querySelectorAll('meta[name="viewport" i]');
@@ -193,7 +242,9 @@
     if (!/width\s*=\s*device-width|initial-scale/i.test(content)) return;
     const additions = [];
     if (!/initial-scale/i.test(content)) additions.push('initial-scale=1');
-    if (!/minimum-scale/i.test(content)) additions.push('minimum-scale=1');
+    // A minimum above the page's initial scale would zoom it in and lay it out narrower.
+    const initial = parseFloat((/initial-scale\s*=\s*([\d.]+)/i.exec(content) || [])[1]);
+    if (!/minimum-scale/i.test(content)) additions.push(`minimum-scale=${initial > 0 && initial < 1 ? initial : 1}`);
     if (!additions.length) return;
     const next = `${content.trim().replace(/[\s,;]+$/, '')}, ${additions.join(', ')}`;
     if (!state.meta || state.meta.el !== meta) state.meta = { el: meta, content, ours: next };
@@ -201,13 +252,22 @@
     meta.setAttribute('content', next);
   }
 
-  /** Puts our additions back if a head manager (Next.js, Helmet…) rewrote the meta. */
+  /**
+   * Puts our additions back if a head manager rewrote the meta (unhead) or
+   * replaced it with a fresh one (Next.js, Helmet and Turbo compare tags, so
+   * they swap out the one we edited on every navigation).
+   */
   function checkViewportMeta() {
-    if (!state.active || !state.meta) return;
-    const meta = lastViewportMeta();
-    if (meta === state.meta.el && meta.getAttribute('content') === state.meta.ours) return;
-    if (++state.metaRewrites > 5) return; // the page insists; leave it
-    state.meta = null;
+    if (!state.active) return;
+    if (state.meta) {
+      const meta = lastViewportMeta();
+      if (meta === state.meta.el && meta.getAttribute('content') === state.meta.ours) return;
+      const now = performance.now();
+      state.metaRewrites = state.metaRewrites.filter((t) => now - t < META_WINDOW);
+      if (state.metaRewrites.length >= META_LIMIT) return; // the page insists; leave it for now
+      state.metaRewrites.push(now);
+      restoreViewportMeta();
+    }
     fixViewportMeta();
   }
 
@@ -302,15 +362,21 @@
     }
     if (!state.settings.enabled) return;
     let relevant = false;
+    let head = false;
     for (const m of mutations) {
       if (m.type === 'childList') {
         for (const n of m.addedNodes) {
           if (n.nodeType === 1 && n.hasAttribute('data-duofari-ui')) continue;
           if (n.nodeType === 1) relevant = true;
-          // Content added inside a clipper Duofari opened up (text too).
-          if (state.active && (n.nodeType === 1 || n.nodeType === 3) && D.noteAdded(n)) relevant = true;
+          // Content added inside a clipper Duofari opened up (text too). Text
+          // that keeps changing in one place (a clock, a live score) is left
+          // for a later scan instead of bringing one each time.
+          if (state.active && (n.nodeType === 1 || n.nodeType === 3) && D.noteAdded(n) && (n.nodeType === 1 || !textRecently(m.target))) {
+            relevant = true;
+          }
         }
         if (!relevant) for (const n of m.removedNodes) if (n.nodeType === 1 && !n.hasAttribute('data-duofari-ui')) relevant = true;
+        if (m.target === document.head) head = true;
         continue;
       }
       const t = m.target;
@@ -322,18 +388,29 @@
       if (D.records.has(t)) {
         // The site restyled something we extended: re-measure it from the
         // site's own styles instead of keeping stale numbers. The guard's
-        // touch-action lock, written while zooming, isn't a restyle.
-        if (m.attributeName === 'class' || (m.attributeName === 'style' && !D.guard.onlyLockChanged(t, m.oldValue))) {
-          D.markDirty(t);
-        }
+        // touch-action lock, written while zooming, and custom properties
+        // aren't a restyle.
+        if (m.attributeName === 'style' && !D.guard.restyled(t, m.oldValue)) continue;
+        if (m.attributeName === 'class' || m.attributeName === 'style') D.markDirty(t);
         relevant = true;
       } else if (m.attributeName !== 'style' && !tooBusy(t)) {
         relevant = true;
       }
     }
+    // A head manager may have swapped in a fresh viewport meta.
+    if (head) checkViewportMeta();
     if (state.active) D.checkLifts();
     if (relevant) schedule();
   });
+
+  /** True if text in `parent` already brought a scan within TEXT_QUIET. */
+  function textRecently(parent) {
+    const now = performance.now();
+    const last = state.textScans.get(parent);
+    if (last !== undefined && now - last < TEXT_QUIET) return true;
+    state.textScans.set(parent, now);
+    return false;
+  }
 
   /** Elements the page copied from ones we'd changed (sticky-header clones, loop slides, snapshots). */
   function cleanClones(node) {
@@ -376,6 +453,7 @@
     // A new page in a single-page app: give it a fresh chance.
     state.unstable = false;
     state.flips = [];
+    state.metaRewrites = [];
     schedule();
   }
 
@@ -428,9 +506,16 @@
     sendResponse(status());
   }
 
+  /** What the app's device report says, without the time stamp older versions added. */
+  const deviceKey = (d) => (d ? [d.screenWidth, d.screenHeight, d.scale, d.model].join('|') : '');
+
   async function start() {
     state.settings = await D.loadSettings();
     D.onSettingsChanged((patch) => {
+      // The popup asks the app for the device each time it opens; the same
+      // answer again changes nothing.
+      if ('device' in patch && deviceKey(patch.device) === deviceKey(state.settings.device)) delete patch.device;
+      if (!Object.keys(patch).length) return;
       const relayout = ['bands', 'media', 'allImages', 'breakout', 'landscapeSide', 'desktopPages', 'force', 'forceColumn', 'device']
         .some((k) => k in patch && JSON.stringify(patch[k]) !== JSON.stringify(state.settings[k]));
       Object.assign(state.settings, patch);

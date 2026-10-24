@@ -54,6 +54,7 @@
     'site-disabled': ['reasonSiteOff', 'Off for this site', 'reasonSiteOffDetail', 'Turn it back on above.'],
     'excluded-site': ['reasonExcluded', 'Off for this web app', 'reasonExcludedDetail', 'Turn it on above if you’d like to try it here.'],
     'zoomed': ['reasonZoomed', 'Paused while zoomed in', 'reasonZoomedDetail', 'Zoom back out to see the page extended.'],
+    'unsupported-document': ['statusUnsupported', 'Duofari can’t change this kind of page', 'statusUnsupportedDetail', 'It works on websites, not on Safari’s own pages, Reader or PDFs.'],
     'starting': ['statusChecking', 'Checking this page…', '', ''],
   };
 
@@ -155,6 +156,21 @@
     }
   }
 
+  /**
+   * Whether Safari lets Duofari run on the site for good. Opening the popup
+   * also grants the tab temporary access (activeTab): Safari then shows its
+   * address and runs the content scripts, but only until the tab moves to
+   * another site. permissions.contains() leaves that grant out.
+   */
+  async function hasAccess(url) {
+    try {
+      const site = url && new URL(url);
+      return await api.permissions.contains({ origins: [site ? `${site.protocol}//${site.hostname}/*` : '*://*/*'] });
+    } catch {
+      return !!url; // can't tell: go by whether Safari shows the address
+    }
+  }
+
   async function refreshStatus() {
     try {
       [tab] = await api.tabs.query({ active: true, currentWindow: true });
@@ -165,32 +181,37 @@
       showStatus('warn', t('statusNoPage', 'No page open'), '');
       return;
     }
-    // Without access to the site Safari hides the tab's address.
+    // Without any access to the site Safari hides the tab's address.
     const url = tab.url || '';
+    const unsupported = () => showStatus('off', t('statusUnsupported', 'Duofari can’t change this kind of page'),
+      t('statusUnsupportedDetail', 'It works on websites, not on Safari’s own pages, Reader or PDFs.'));
     if (url && !/^https?:/i.test(url)) {
-      showStatus('off', t('statusUnsupported', 'Duofari can’t change this kind of page'),
-        t('statusUnsupportedDetail', 'It works on websites, not on Safari’s own pages, Reader or PDFs.'));
+      unsupported();
       showDiagnostics({ url });
       return;
     }
 
-    const status = await askStatus();
+    const [access, status] = await Promise.all([hasAccess(url), askStatus()]);
+    const allow = {
+      label: t('actionAllow', 'Allow on All Websites'),
+      run: async () => {
+        let granted = false;
+        try {
+          granted = await api.permissions.request({ origins: ['*://*/*'] });
+        } catch {
+          granted = false;
+        }
+        if (granted) await inject();
+        setTimeout(refreshStatus, 600);
+      },
+    };
     if (!status) {
-      if (!url) {
+      if (!access) {
         showStatus('warn', t('statusNoAccess', 'Duofari can’t see this site yet'),
-          t('statusNoAccessDetail', 'Allow it on all websites so it can extend pages as they open.'), {
-            label: t('actionAllow', 'Allow on All Websites'),
-            run: async () => {
-              let granted = false;
-              try {
-                granted = await api.permissions.request({ origins: ['*://*/*'] });
-              } catch {
-                granted = false;
-              }
-              if (granted) await inject();
-              setTimeout(refreshStatus, 600);
-            },
-          });
+          t('statusNoAccessDetail', 'Allow it on all websites so it can extend pages as they open.'), allow);
+      } else if (!url || /\.pdf$/i.test(new URL(url).pathname)) {
+        // Safari's Start Page, an empty tab, or a PDF: nothing to run in.
+        unsupported();
       } else {
         showStatus('warn', t('statusNotRun', 'Duofari hasn’t run on this page yet'),
           t('statusNotRunDetail', 'Pages opened before Duofari was turned on need a moment, or a reload.'), {
@@ -213,6 +234,11 @@
     render();
     showDiagnostics({ reason: status.reason, counts: status.counts });
 
+    // Running only on the temporary access that opening the popup gave:
+    // it stops on the next site unless the user allows it for good.
+    const temporary = !access && status.reason !== 'unsupported-document';
+    const note = temporary ? t('statusThisPageOnly', 'For now Duofari can see only this page. Allow it on all websites so it can extend pages as they open.') : '';
+    const action = temporary ? allow : null;
     if (status.active) {
       const c = status.counts || {};
       const images = (c.media || 0) + (c.breakout || 0);
@@ -223,12 +249,12 @@
         ? t('statusExtended', 'Extended $1', list.format(parts))
         : t('statusNothingYet', 'On, nothing to extend yet');
       const points = String(Math.round(status.column));
-      showStatus('on', title, status.side === 'left'
+      showStatus('on', title, note || (status.side === 'left'
         ? t('statusColumnLeft', 'Safari’s controls take $1 points on the left.', points)
-        : t('statusColumnRight', 'Safari’s controls take $1 points on the right.', points));
+        : t('statusColumnRight', 'Safari’s controls take $1 points on the right.', points)), action);
     } else {
       const [titleKey, title, detailKey, detail] = REASONS[status.reason] || ['statusOff', 'Not active', '', ''];
-      showStatus('off', t(titleKey, title), detailKey ? t(detailKey, detail) : detail);
+      showStatus('off', t(titleKey, title), note || (detailKey ? t(detailKey, detail) : detail), action);
     }
   }
 

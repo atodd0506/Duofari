@@ -3,11 +3,12 @@
 // Content that reaches under Safari's column makes the document wider than
 // the layout viewport, which would let the page slide sideways. Duofari:
 //   1. restricts panning to the vertical axis while the page is at its normal
-//      zoom (`touch-action: pan-y pinch-zoom`) — on <html>, <body> and every
-//      wrapper on the way that WebKit would otherwise reset to `auto` (any
-//      element whose computed overflow is auto or scroll). Real horizontal
-//      scrollers (carousels) keep their own panning. Optional: it also turns
-//      off double-tap zoom and swiping back from the middle of the page;
+//      zoom (`touch-action: pan-y pinch-zoom`, less whatever the page itself
+//      turned off) — on <html>, <body> and every wrapper on the way that
+//      WebKit would otherwise reset to `auto` (any element whose computed
+//      overflow is auto or scroll). Real horizontal scrollers (carousels)
+//      keep their own panning. Optional: it also turns off double-tap zoom
+//      and swiping back from the middle of the page;
 //   2. puts the page (or an app shell that scrolls instead of it) back if it
 //      ends up scrolled sideways anyway — focus, find-in-page, anchors, or a
 //      swipe when (1) is off — once scrolling has settled, with a relative
@@ -52,15 +53,31 @@
   // ---------------------------------------------------------------------------
   // touch-action lock
 
+  /**
+   * The page's own touch-action without sideways panning, so a pinch-zoom
+   * (or anything else) the page turned off stays off. Null when the page
+   * already allows no sideways panning there.
+   */
+  function lockValue(el) {
+    const own = getComputedStyle(el).touchAction;
+    if (!own || own === 'auto' || own === 'manipulation') return 'pan-y pinch-zoom';
+    const tokens = own.split(/\s+/);
+    const kept = tokens.filter((token) => !/^pan-(x|left|right)$/.test(token));
+    if (kept.length === tokens.length) return null;
+    return kept.join(' ') || 'none';
+  }
+
   function lockElement(el) {
     if (state.locked.has(el)) return;
     // A copy of a locked element (a page snapshot put back) would otherwise
     // have our lock saved as its own value.
     if (el.hasAttribute(LOCK)) cleanLock(el);
+    const lock = lockValue(el);
+    if (!lock) return;
     const style = el.style;
     const values = LOCK_PROPS.map((prop) => [style.getPropertyValue(prop), style.getPropertyPriority(prop)]);
     state.locked.set(el, { attr: D.originalStyle ? D.originalStyle(el) : el.getAttribute('style'), values });
-    style.setProperty('touch-action', 'pan-y pinch-zoom', 'important');
+    style.setProperty('touch-action', lock, 'important');
     if (el === document.documentElement) style.setProperty('overscroll-behavior-x', 'none', 'important');
     el.setAttribute(LOCK, JSON.stringify(values));
   }
@@ -166,6 +183,11 @@
 
   function onTouch(event) {
     state.touches = event.touches ? event.touches.length : 0;
+    if (event.type !== 'touchstart') return;
+    // A target the page removes mid-touch (a recycled feed row) still gets
+    // its touchend, but outside the document, where the window never hears it.
+    const target = event.composedPath()[0] || event.target;
+    for (const type of ['touchend', 'touchcancel']) target.addEventListener(type, onTouch, { once: true, passive: true });
   }
 
   function onViewport() {
@@ -228,18 +250,18 @@
     },
 
     /**
-     * Whether a style attribute that was `oldValue` differs from the current
-     * one only in the lock (which is written while zooming, outside a run).
+     * Whether a style attribute that was `oldValue` sets anything different
+     * now, apart from the lock (which is written while zooming, outside a
+     * run) and custom properties (scroll effects write those every frame).
      */
-    onlyLockChanged(el, oldValue) {
+    restyled(el, oldValue) {
       const [before, now] = scratch;
       before.setAttribute('style', oldValue || '');
       now.setAttribute('style', el.getAttribute('style') || '');
-      for (const prop of LOCK_PROPS) {
-        before.style.removeProperty(prop);
-        now.style.removeProperty(prop);
+      for (const { style } of scratch) {
+        for (const prop of [...style]) if (LOCK_PROPS.includes(prop) || prop.startsWith('--')) style.removeProperty(prop);
       }
-      return before.style.cssText === now.style.cssText;
+      return before.style.cssText !== now.style.cssText;
     },
 
     get active() { return state.on; },

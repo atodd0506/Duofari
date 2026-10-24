@@ -388,7 +388,7 @@
       const pageSized = Math.abs(rect.left) <= TOL && rect.right >= vw - TOL && rect.height >= 0.6 * ctx.viewportHeight;
       if (!pageSized) return;
       // An app shell that scrolls instead of the document: hold it still too.
-      if (ctx.scrollers) ctx.scrollers.add(el);
+      if (ctx.scrollers && !scrollsX(el, cs)) ctx.scrollers.add(el);
     }
     if (ctx.touchRoots && resetsTouchAction(cs) && !scrollsX(el, cs)) ctx.touchRoots.add(el);
     pushChildren(stack, el, ctx);

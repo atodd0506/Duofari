@@ -43,6 +43,303 @@ const turnOff = (p) => p.evaluate(() => {
 
 // Controller, guard and popup-facing behaviour (content-main.js, content-guard.js, content-geometry.js).
 const LIFECYCLE = [
+  {
+    name: 'lifecycle-1',
+    what: 'a page-sized horizontal scroller (a kanban board) keeps its own scroll position',
+    html: page(`
+      header { background: #036; color: #fff; padding: 16px; }
+      .board { display: flex; gap: 8px; height: 420px; overflow-x: auto; }
+      .board > div { flex: 0 0 260px; margin: 8px 0; background: #ddd; }`,
+    `<header>Board</header><div class="board" id="board"><div>To do</div><div>Doing</div><div>Review</div><div>Done</div></div>${paragraphs(20)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      await p.evaluate(() => { document.getElementById('board').scrollLeft = 300; });
+      await settle(p, 600);
+      const x = await p.evaluate(() => document.getElementById('board').scrollLeft);
+      if (!near(x, 300)) failures.push(`board scrolled to 300 was put back to ${x}`);
+    },
+  },
+
+  {
+    name: 'lifecycle-2',
+    what: 'the touch lock doesn’t bring back a pinch-zoom the page turned off, and leaves touch-action: none alone',
+    html: page(`
+      html { touch-action: pan-x pan-y; }
+      header { background: #036; color: #fff; padding: 16px; }`,
+    `<header>App</header>${paragraphs(80)}`),
+    async run({ p, cdp, failures, open }) {
+      await injectDuofari(p);
+      const own = await p.evaluate(() => getComputedStyle(document.documentElement).touchAction);
+      if (own !== 'pan-y') failures.push(`html touch-action ${own}, expected pan-y`);
+      // A two-finger pinch, which the page itself doesn't allow.
+      const fingers = (d) => [{ x: 190 - d, y: 300, id: 1 }, { x: 190 + d, y: 300, id: 2 }];
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: fingers(30) });
+      for (let i = 1; i <= 12; i++) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: fingers(30 + i * 10) });
+        await p.waitForTimeout(16);
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await settle(p, 500);
+      const scale = await p.evaluate(() => visualViewport.scale);
+      if (scale > 1.01) failures.push(`a pinch zoomed the page to ${scale.toFixed(2)}`);
+
+      const second = await open();
+      await second.p.addStyleTag({ content: 'html, body { touch-action: none; }' });
+      await injectDuofari(second.p);
+      const none = await second.p.evaluate(() => [document.documentElement, document.body].map((el) => getComputedStyle(el).touchAction).join(', '));
+      if (none !== 'none, none') failures.push(`touch-action: none on html and body became ${none}`);
+    },
+  },
+
+  {
+    name: 'lifecycle-3',
+    what: 'the viewport meta fix survives head managers that replace the meta or keep rewriting it',
+    html: page('header { background: #036; color: #fff; padding: 16px; }', `<header>Site</header>${paragraphs(20)}`)
+      .replace('width=device-width, initial-scale=1', 'width=device-width'),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const meta = () => p.evaluate(() => [...document.querySelectorAll('meta[name=viewport]')].pop().content);
+      // Next.js, Helmet, Turbo: the tag we edited no longer equals the one the
+      // next route wants, so it is swapped for a fresh one.
+      await p.evaluate(() => {
+        document.querySelector('meta[name=viewport]').remove();
+        document.head.append(Object.assign(document.createElement('meta'), { name: 'viewport', content: 'width=device-width' }));
+        history.pushState({}, '', '/next');
+      });
+      await settle(p, 400);
+      const replaced = await meta();
+      if (!/minimum-scale=1/.test(replaced)) failures.push(`a replaced meta was left as "${replaced}"`);
+      // unhead: the tag is rewritten in place on every client navigation.
+      for (let i = 1; i <= 7; i++) {
+        await p.evaluate((i) => {
+          document.querySelector('meta[name=viewport]').setAttribute('content', 'width=device-width');
+          history.pushState({}, '', `/page-${i}`);
+        }, i);
+        await settle(p, 300);
+        const now = await meta();
+        if (!/minimum-scale=1/.test(now)) {
+          failures.push(`after in-place rewrite ${i} the meta is "${now}"`);
+          break;
+        }
+      }
+    },
+  },
+
+  {
+    name: 'lifecycle-4',
+    what: 'wide content added after Duofari started can be scrolled to, and the lock returns once it is gone',
+    html: page('header { background: #036; color: #fff; padding: 16px; }', `<header>Stats</header><div id="later"></div>${paragraphs(60)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      // A client-rendered route brings a wide table with no scroll wrapper.
+      await p.evaluate(() => {
+        document.getElementById('later').innerHTML = `<table style="width: 900px"><tr>${'<td>A value</td>'.repeat(9)}</tr></table>`;
+      });
+      await settle(p, 600);
+      await p.evaluate(() => scrollTo(300, scrollY));
+      await settle(p, 600);
+      const read = () => p.evaluate(() => ({ x: scrollX, touch: getComputedStyle(document.documentElement).touchAction }));
+      const wide = await read();
+      if (!near(wide.x, 300) || wide.touch !== 'auto') failures.push(`with a wide table: scrolled to 300, now at ${wide.x}; touch-action ${wide.touch}`);
+      await p.evaluate(() => { document.getElementById('later').textContent = ''; });
+      await settle(p, 800);
+      const gone = await read();
+      if (Math.abs(gone.x) > 0.5 || !/pan-y/.test(gone.touch)) failures.push(`with the table gone: scrollX ${gone.x}, touch-action ${gone.touch}`);
+    },
+  },
+
+  {
+    name: 'lifecycle-5',
+    what: 'folding and unfolding a few times in a row does not pause Duofari',
+    html: page('header { background: #036; color: #fff; padding: 16px; }', `<header>Site</header>${paragraphs(20)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      for (const pose of ['unfolded', 'folded', 'unfolded', 'folded']) {
+        await orientPage(p, pose);
+        await settle(p, 1000);
+      }
+      const s = await p.evaluate(() => globalThis.Duofari.controller.status());
+      if (!s.active) failures.push(`after two fold cycles: active ${s.active}, reason ${s.reason}`);
+    },
+  },
+
+  {
+    name: 'lifecycle-6',
+    what: 'the device report the popup asks for on every open changes nothing on the page',
+    fixture: 'blog.html',
+    async run({ p, failures }) {
+      // storage.local as Safari keeps it, with the device stored at startup
+      // (stamped with the time, as older versions did).
+      await p.evaluate(() => {
+        const device = { screenWidth: 466, screenHeight: 678, scale: 3, model: 'iPhone19,1' };
+        const store = { breakout: true, device: { ...device, checked: 1 } };
+        const listeners = [];
+        globalThis.browser = {
+          storage: {
+            local: {
+              get: async (defaults) => ({ ...defaults, ...structuredClone(store) }),
+              set: async (patch) => {
+                const changes = {};
+                for (const [key, value] of Object.entries(patch)) {
+                  changes[key] = { oldValue: store[key], newValue: value };
+                  store[key] = value;
+                }
+                for (const fn of listeners) fn(changes, 'local');
+              },
+            },
+            onChanged: { addListener: (fn) => listeners.push(fn) },
+          },
+          runtime: { onMessage: { addListener() {} } },
+        };
+        globalThis.reportDevice = () => globalThis.browser.storage.local.set({ device: { ...device, checked: Date.now() } });
+      });
+      await injectDuofari(p);
+      // The reader has scrolled past a photo that was broken out of the margins.
+      await p.evaluate(() => scrollTo(0, scrollY + document.getElementById('figure-img').getBoundingClientRect().bottom + 20));
+      await settle(p, 500);
+      const read = () => p.evaluate(() => ({
+        height: document.getElementById('figure-img').getBoundingClientRect().height,
+        redone: [...globalThis.Duofari.records.values()].filter((r) => !r.seenByTest).length,
+      }));
+      await p.evaluate(() => globalThis.Duofari.records.forEach((r) => { r.seenByTest = true; }));
+      const before = await read();
+      await p.evaluate(() => globalThis.reportDevice());
+      await settle(p, 600);
+      const after = await read();
+      if (!near(after.height, before.height) || after.redone) {
+        failures.push(`the same device report again: photo ${before.height.toFixed(1)} → ${after.height.toFixed(1)} px tall, ${after.redone} element(s) extended afresh`);
+      }
+    },
+  },
+
+  {
+    name: 'lifecycle-7',
+    what: 'a touch whose target removes itself does not leave snap-back waiting for the finger',
+    html: page(`
+      header { background: #036; color: #fff; padding: 16px; }
+      #row { margin: 20px; padding: 20px; background: #ccf; }`,
+    `<header>Feed</header><div id="row">A row the feed recycles</div>${paragraphs(80)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const at = await p.evaluate(() => {
+        const row = document.getElementById('row');
+        row.addEventListener('touchstart', () => row.remove());
+        const r = row.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      });
+      await p.touchscreen.tap(at.x, at.y);
+      await settle(p, 300);
+      // Focus or find-in-page then shifts the page sideways.
+      await p.evaluate(() => scrollTo(60, 0));
+      await settle(p, 800);
+      const x = await p.evaluate(() => scrollX);
+      if (Math.abs(x) > 0.5) failures.push(`page left scrolled sideways (scrollX ${x})`);
+    },
+  },
+
+  {
+    name: 'lifecycle-8',
+    what: 'turning Duofari off while zoomed in takes effect at once, and a page that starts zoomed in says so',
+    html: page('header { background: #036; color: #fff; padding: 16px; }', `<header>Site</header>${paragraphs(20)}`),
+    async run({ p, cdp, failures, open }) {
+      await injectDuofari(p);
+      await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
+      await settle(p, 500);
+      await turnOff(p);
+      const s = await p.evaluate(async () => ({ ...(await globalThis.Duofari.controller.status()), marks: document.querySelectorAll('[data-duofari]').length }));
+      if (s.active || s.reason !== 'disabled' || s.marks) failures.push(`turned off while zoomed in: active ${s.active}, reason ${s.reason}, ${s.marks} marked element(s)`);
+
+      const second = await open();
+      await second.cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
+      await settle(second.p, 300);
+      await injectDuofari(second.p);
+      const reason = await second.p.evaluate(async () => (await globalThis.Duofari.controller.status()).reason);
+      if (reason !== 'zoomed') failures.push(`a page zoomed in from the start reports "${reason}"`);
+    },
+  },
+
+  {
+    name: 'lifecycle-9',
+    what: 'a page that starts zoomed out keeps its zoom and layout width',
+    html: page('header { background: #036; color: #fff; padding: 16px; }', `<header>Site</header>${paragraphs(20)}`)
+      .replace('initial-scale=1', 'initial-scale=0.8'),
+    async run({ p, failures }) {
+      // The harness pins minimum-scale=1, as Safari effectively does for pages
+      // at an initial scale of 1; this one starts at 0.8, so give it its own meta back.
+      await p.evaluate(() => document.querySelector('meta[name=viewport]').setAttribute('content', 'width=device-width, initial-scale=0.8'));
+      await settle(p, 300);
+      const read = () => p.evaluate(() => ({ width: document.documentElement.clientWidth, scale: visualViewport.scale }));
+      const plain = await read();
+      await injectDuofari(p);
+      const now = await read();
+      if (!near(now.width, plain.width) || Math.abs(now.scale - plain.scale) > 0.01) {
+        failures.push(`laid out ${plain.width} px wide at ${plain.scale.toFixed(2)}, now ${now.width} px at ${now.scale.toFixed(2)}`);
+      }
+    },
+  },
+
+  {
+    name: 'engine-r2-10',
+    what: 'custom properties written every frame, and a ticking clock, inside an opened wrapper bring no stream of scans',
+    html: page(`
+      .site { overflow-x: hidden; }
+      header { background: #036; color: #fff; padding: 16px; }`,
+    `<div class="site" id="site"><header>My Blog <span id="clock">0</span></header><article>${paragraphs(400)}</article></div>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const s = await p.evaluate(async () => {
+        const D = globalThis.Duofari;
+        const scan = D.scan;
+        let scans = 0;
+        D.scan = (ctx) => { scans++; return scan(ctx); };
+        const counted = async (ms, step) => {
+          scans = 0;
+          const t0 = performance.now();
+          while (performance.now() - t0 < ms) await step();
+          await new Promise((r) => setTimeout(r, 400));
+          return scans;
+        };
+        const site = document.getElementById('site');
+        const clock = document.getElementById('clock');
+        // A scroll-linked effect, then a clock updating four times a second.
+        const vars = await counted(1500, () => new Promise((r) => requestAnimationFrame(() => { site.style.setProperty('--progress', String(Math.random())); r(); })));
+        let tick = 0;
+        const ticks = await counted(3000, () => new Promise((r) => setTimeout(() => { clock.textContent = String(++tick); r(); }, 250)));
+        return { vars, ticks, padding: getComputedStyle(site).paddingRight };
+      });
+      if (s.vars > 1) failures.push(`custom-property writes on the wrapper brought ${s.vars} scans in 1.5 s`);
+      if (s.ticks > 2) failures.push(`a clock ticking in the wrapper brought ${s.ticks} scans in 3 s`);
+      if (s.padding !== `${C}px`) failures.push(`wrapper no longer opened (padding-right ${s.padding})`);
+    },
+  },
+
+  {
+    name: 'platform-3',
+    what: 'an SVG file shown on its own tells the popup that Duofari can’t change it',
+    html: page('', ''),
+    async run({ p, failures }) {
+      const url = p.url().replace(/[^/]*$/, 'logo.svg');
+      await p.route(url, (route) => route.fulfill({ contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><circle cx="50" cy="50" r="40" fill="#036"/></svg>' }));
+      await p.goto(url);
+      await p.evaluate(() => {
+        globalThis.listeners = [];
+        globalThis.browser = { runtime: { onMessage: { addListener: (fn) => globalThis.listeners.push(fn) } } };
+      });
+      // Injected by Safari, then again by the popup's Apply.
+      const { extensionSource } = await import('./lib/duo.mjs');
+      const source = await extensionSource();
+      await p.evaluate(source);
+      await p.evaluate(source);
+      const s = await p.evaluate(() => new Promise((resolve) => {
+        for (const fn of globalThis.listeners) fn({ type: 'duofari:status' }, {}, (reply) => resolve({ reply, listeners: globalThis.listeners.length }));
+        setTimeout(() => resolve({ reply: null, listeners: globalThis.listeners.length }), 300);
+      }));
+      if (!s.reply || s.reply.reason !== 'unsupported-document' || s.listeners !== 1) {
+        failures.push(`status ${JSON.stringify(s.reply)} from ${s.listeners} listener(s)`);
+      }
+    },
+  },
 ];
 
 // The engine: choosing, extending and restoring boxes (content-bleed.js, content-classify.js).

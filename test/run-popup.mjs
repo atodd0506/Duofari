@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Renders the popup against a stand-in for Safari's extension APIs and checks
-// each state it can be in: active, not running yet, no site access (then
-// granting it), pages it can't change, and web apps it leaves alone.
-// Writes screenshots to test/output/popup/.
+// each state it can be in: active, not running yet, no site access or only
+// the popup's temporary access (then granting it), pages it can't change, and
+// web apps it leaves alone. Writes screenshots to test/output/popup/.
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -76,11 +76,49 @@ const CASES = [
     click: { inject: true, status: activeStatus('example.com'), title: 'Extended 3 bars and 1 image' },
   },
   {
+    // Denied in Safari's settings: no temporary access either, so the address is hidden.
     name: 'no-access',
+    granted: [],
     tab: { id: 1, url: '' },
     status: null,
     expect: { title: 'Duofari can’t see this site yet', action: 'Allow on All Websites' },
     click: { grant: true, inject: true, status: activeStatus('example.com'), title: 'Extended 3 bars and 1 image' },
+  },
+  {
+    // Safari's default "Ask": opening the popup gave the tab temporary access,
+    // so the address shows and the content scripts run, until the next site.
+    name: 'this-page-only',
+    granted: [],
+    tab: { id: 1, url: 'https://example.com/story' },
+    status: activeStatus('example.com'),
+    expect: { title: 'Extended 3 bars and 1 image', detail: messages.statusThisPageOnly.message, action: 'Allow on All Websites', site: true },
+    click: { grant: true, status: activeStatus('example.com'), title: 'Extended 3 bars and 1 image' },
+  },
+  {
+    name: 'site-allowed',
+    granted: ['*://example.com/*'],
+    tab: { id: 1, url: 'https://example.com/story' },
+    status: activeStatus('example.com'),
+    expect: { title: 'Extended 3 bars and 1 image', detail: 'Safari’s controls take 84 points on the right.', site: true },
+  },
+  {
+    // Safari's Start Page or an empty tab, with access to all websites.
+    name: 'start-page',
+    tab: { id: 1, url: '' },
+    status: null,
+    expect: { title: 'Duofari can’t change this kind of page' },
+  },
+  {
+    name: 'svg-file',
+    tab: { id: 1, url: 'https://example.com/logo.svg' },
+    status: { hostname: 'example.com', active: false, reason: 'unsupported-document' },
+    expect: { title: 'Duofari can’t change this kind of page' },
+  },
+  {
+    name: 'pdf',
+    tab: { id: 1, url: 'https://example.com/paper.pdf' },
+    status: null,
+    expect: { title: 'Duofari can’t change this kind of page' },
   },
   {
     name: 'dark',
@@ -98,6 +136,12 @@ function mockBrowser({ messages, manifest, scenario }) {
   const calls = (globalThis.__calls = { injected: [], requested: [], saved: [], sent: [] });
   let status = scenario.status;
   let tab = scenario.tab;
+  // Host access the user granted for good (all websites unless the case says
+  // otherwise). The temporary access opening the popup gives a tab doesn't
+  // count here: Safari's permissions.contains() leaves it out.
+  const granted = new Set(scenario.granted || ['*://*/*']);
+  const host = (pattern) => /^[^:]+:\/\/([^/]*)/.exec(pattern)[1];
+  const covered = (origin) => granted.has('*://*/*') || granted.has(`*://${host(origin)}/*`);
   globalThis.__setScenario = (next) => {
     if ('status' in next) status = next.status;
     if ('tab' in next) tab = next.tab;
@@ -132,7 +176,12 @@ function mockBrowser({ messages, manifest, scenario }) {
       reload: async () => {},
     },
     permissions: {
-      request: async (perms) => { calls.requested.push(perms); return true; },
+      contains: async ({ origins = [] }) => origins.every(covered),
+      request: async (perms) => {
+        calls.requested.push(perms);
+        for (const origin of perms.origins || []) granted.add(origin);
+        return true;
+      },
     },
     scripting: {
       executeScript: async ({ files }) => { calls.injected.push(files); return []; },
@@ -165,6 +214,10 @@ for (const scenario of CASES) {
     await page.waitForFunction((t) => document.getElementById('status-title').textContent === t, scenario.expect.title, { timeout: 3000 });
   } catch {
     fail(`status reads “${await title.textContent()}”, expected “${scenario.expect.title}”`);
+  }
+  if ('detail' in scenario.expect) {
+    const detail = await page.locator('#status-detail').textContent();
+    if (detail !== scenario.expect.detail) fail(`detail reads “${detail}”, expected “${scenario.expect.detail}”`);
   }
   const action = page.locator('#status-action');
   if (scenario.expect.action) {
@@ -205,16 +258,19 @@ for (const scenario of CASES) {
 
   await writeFile(join(OUT, `${scenario.name}.png`), await page.screenshot({ fullPage: true }));
 
-  if (scenario.click) {
+  // (A missing action button was reported above.)
+  if (scenario.click && (await action.isVisible())) {
     await page.evaluate((next) => globalThis.__setScenario(next), {
       status: scenario.click.status,
       tab: { id: 1, url: 'https://example.com/' },
     });
     await action.click();
+    // Once it has worked, nothing is left to offer.
     try {
-      await page.waitForFunction((t) => document.getElementById('status-title').textContent === t, scenario.click.title, { timeout: 3000 });
+      await page.waitForFunction((t) => document.getElementById('status-title').textContent === t &&
+        document.getElementById('status-action').hidden, scenario.click.title, { timeout: 3000 });
     } catch {
-      fail(`after the action the status reads “${await title.textContent()}”`);
+      fail(`after the action the status reads “${await title.textContent()}”${(await action.isVisible()) ? `, still offering “${await action.textContent()}”` : ''}`);
     }
     const calls = await page.evaluate(() => globalThis.__calls);
     if (scenario.click.grant && !calls.requested.some((p) => p.origins && p.origins.includes('*://*/*'))) fail('did not ask for site access');
