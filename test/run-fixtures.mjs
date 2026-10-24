@@ -48,11 +48,17 @@ const CASES = [
     settings: { landscapeSide: 'right' } },
   { name: 'landscape-left', file: 'appstore-story.html', pose: 'landscape-left', active: false, reason: 'start-side' },
   { name: 'rtl', file: 'rtl.html', active: false, reason: 'start-side' },
-  // A right-to-left page with the column on its end side, the left.
-  { name: 'rtl-landscape-left', file: 'rtl.html', pose: 'landscape-left', active: true, min: 1,
-    expect: { header: 'bleed', 'img.hero': 'none' }, probe: { header: '#7a1f5c', 'img.hero': 'page' }, same: { 'img.hero': '100,300,500' } },
-  { name: 'rtl-landscape-left-pinned', file: 'rtl.html', pose: 'landscape-left', active: true, min: 2, settings: { landscapeSide: 'left' },
-    expect: { header: 'bleed', 'img.hero': 'bleed' }, probe: { header: '#7a1f5c', 'img.hero': 'image' } },
+  // A right-to-left page with the column on its end side, the left. The
+  // feature's padding box grows leftwards, so its button is pinned back; its
+  // art and the revealed banner keep their place (the sun at 521).
+  { name: 'rtl-landscape-left', file: 'rtl.html', pose: 'landscape-left', active: true, min: 2,
+    expect: { header: 'bleed', 'img.hero': 'none', '.feature': 'bleed', 'img.banner': 'none' },
+    probe: { header: '#7a1f5c', 'img.hero': 'page', 'img.banner': 'page' },
+    same: { 'img.hero': '100,300,500', '.feature': '510,521,532' } },
+  { name: 'rtl-landscape-left-pinned', file: 'rtl.html', pose: 'landscape-left', active: true, min: 4, settings: { landscapeSide: 'left' },
+    expect: { header: 'bleed', 'img.hero': 'bleed', '.feature': 'bleed', '.feature .art': 'bleed', 'img.banner': 'bleed' },
+    probe: { header: '#7a1f5c', 'img.hero': 'image', '.feature': 'image', 'img.banner': 'image' },
+    same: { '.feature': '510,521,532', 'img.banner': '510,521,532' } },
   { name: 'desktop-layout', file: 'desktop.html', active: false, reason: 'desktop-layout' },
   { name: 'unfolded', file: 'appstore-story.html', pose: 'unfolded', active: false, reason: 'no-column' },
   { name: 'other-iphone', file: 'appstore-story.html', pose: 'iphone', active: false, reason: 'not-duo' },

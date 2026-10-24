@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Runs Duofari against live websites in an emulated folded iPhone Duo and
 // checks the invariants that must hold on any page:
-//   - no text or control moves, sideways or up and down;
+//   - no text or control moves, sideways or up and down (live pages move
+//     content up and down by themselves, so only a move that is gone again
+//     once Duofari is off counts);
 //   - no hidden text becomes visible beside the viewport;
 //   - the page doesn't stay scrolled sideways;
 //   - turning Duofari off restores every element it touched, the touch
@@ -17,7 +19,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPlaywright } from './lib/playwright.mjs';
 import {
-  POSES, SOURCE_URL, newDuoContext, orientPage, injectDuofari, snapshot, duofariState, checkInvariants, settle, emulateSafariMinimumScale,
+  POSES, SOURCE_URL, newDuoContext, orientPage, injectDuofari, snapshot, duofariState, checkInvariants, verticalDrift, settle,
+  emulateSafariMinimumScale,
 } from './lib/duo.mjs';
 import { capturePair, pageBackground, renderPreview } from './lib/preview.mjs';
 
@@ -77,7 +80,17 @@ for (const url of urls) {
     const fill = await pageBackground(page);
     const shotBefore = await page.screenshot();
     await orientPage(page, 'folded');
-    const before = await snapshot(page);
+    // Rotating promo bars and late ad slots move content up and down by
+    // themselves: what moves while Duofari isn't running isn't its doing.
+    let before = await snapshot(page);
+    const drifting = new Set();
+    for (let i = 0; i < 2; i++) {
+      await page.waitForTimeout(300);
+      const next = await snapshot(page);
+      for (const key of verticalDrift(before, next)) drifting.add(key);
+      before = next;
+    }
+    const at = await page.evaluate(() => [window.scrollX, window.scrollY]);
 
     const t0 = Date.now();
     await injectDuofari(page);
@@ -90,10 +103,12 @@ for (const url of urls) {
     // layout viewport (and every fixed element) to fit, which Safari doesn't
     // do at minimum scale 1; geometry comparisons there aren't meaningful.
     line.emulationLimited = before.innerWidth > before.vw + 0.5;
-    const failures = state && state.status.active && !line.emulationLimited ? checkInvariants(before, after, { C, strictExpect: false }) : [];
+    const failures = [];
 
     if (state && state.status.active) {
-      await page.evaluate(() => window.scrollTo(60, window.scrollY));
+      // Toward the end side, where the extended content is: a right-to-left
+      // page scrolls to negative x, and +60 would stop at 0 and test nothing.
+      await page.evaluate(() => window.scrollTo(getComputedStyle(document.documentElement).direction === 'rtl' ? -60 : 60, window.scrollY));
       await page.waitForTimeout(450);
       const x = await page.evaluate(() => window.scrollX);
       const own = await page.evaluate(() => globalThis.Duofari.controller.state.allowance);
@@ -105,22 +120,48 @@ for (const url of urls) {
       await writeFile(join(OUT, `${name}.png`), await renderPreview(browser, {
         before: shotBefore, after: shotAfter, fill, C, vw, vh: pose.viewport.height, title: url,
       }));
-      // Turning Duofari off puts back every style attribute it touched, as
-      // the page had it, and the meta and touch settings it started with.
+      // Turning Duofari off puts back every declaration it changed, as the
+      // page had it, and the meta and touch settings it started with.
       // (Records are dropped whether or not the styles came back, so their
       // count alone proves nothing.)
       failures.push(...await page.evaluate(() => {
         const D = globalThis.Duofari;
         const before = globalThis.__duofariBefore;
-        const touched = [...D.records.values()].map((rec) => [rec.el, rec.styleAttr]);
+        const decls = (style) => Object.fromEntries([...style].map((p) => [p, `${style.getPropertyValue(p)}${style.getPropertyPriority(p) ? ' !important' : ''}`]));
+        const differ = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((p) => a[p] !== b[p]);
+        const put = (to, prop, value) => { if (value) to[prop] = value; else delete to[prop]; };
+        const scratch = document.createElement('div');
+        // What each element has to be left with: the page's declarations as
+        // they are now (a scroll handler may have set some since Duofari
+        // started), with each one Duofari holds back to the value it
+        // replaced. Duofari's own are always !important and a script's
+        // hardly ever, so one that still is and isn't in the page's style
+        // attribute goes back to the page's.
+        const touched = [...D.records.values()].map((rec) => {
+          scratch.setAttribute('style', rec.styleAttr || '');
+          const original = decls(scratch.style);
+          const want = decls(rec.el.style);
+          for (const [prop, value] of Object.entries(want)) {
+            const saved = rec.applied.has(prop) && value === `${rec.applied.get(prop)} !important` && rec.saved.get(prop);
+            const back = saved ? saved.value && `${saved.value}${saved.priority ? ' !important' : ''}` : value;
+            put(want, prop, back && back.endsWith(' !important') && back !== original[prop] ? original[prop] : back);
+          }
+          return { el: rec.el, want, original, attr: rec.styleAttr };
+        });
         D.controller.state.settings.enabled = false;
         D.controller.run();
         const out = [];
         const label = (el) => `${el.localName}${el.id ? '#' + el.id : ''}${typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/).join('.') : ''}`;
         if (D.records.size) out.push(`${D.records.size} elements still recorded after turning off`);
-        for (const [el, attr] of touched) {
-          const now = el.getAttribute('style');
-          if (now !== attr) out.push(`${label(el)} not restored: style ${JSON.stringify(now)}, was ${JSON.stringify(attr)}`);
+        for (const { el, want, original, attr } of touched) {
+          const now = decls(el.style);
+          const wrong = differ(now, want);
+          if (wrong.length) {
+            out.push(`${label(el)} not restored: ${wrong.map((p) => `${p} ${JSON.stringify(now[p] || '')}, wanted ${JSON.stringify(want[p] || '')}`).join('; ')}`);
+          } else if (!differ(now, original).length && el.getAttribute('style') !== attr) {
+            // Back to the page's own declarations, so back to its attribute too.
+            out.push(`${label(el)} style attribute not put back: ${JSON.stringify(el.getAttribute('style'))}, was ${JSON.stringify(attr)}`);
+          }
         }
         let marks = document.querySelectorAll('[data-duofari]').length;
         for (const host of document.querySelectorAll('*')) if (host.shadowRoot) marks += host.shadowRoot.querySelectorAll('[data-duofari]').length;
@@ -133,6 +174,12 @@ for (const url of urls) {
         if ((meta ? meta.getAttribute('content') : null) !== before.meta) out.push(`viewport meta not restored: ${meta && meta.getAttribute('content')}, was ${before.meta}`);
         return out;
       }));
+
+      // A move up or down was Duofari's only if it's gone again now.
+      await page.evaluate(([x, y]) => window.scrollTo(x, y), at);
+      await settle(page);
+      for (const key of verticalDrift(before, await snapshot(page))) drifting.add(key);
+      if (!line.emulationLimited) failures.unshift(...checkInvariants(before, after, { C, strictExpect: false, drifting }));
     }
     failures.push(...errors.map((e) => `script error: ${e}`));
     line.failures = failures;
