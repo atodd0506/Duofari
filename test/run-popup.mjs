@@ -264,14 +264,15 @@ for (const scenario of CASES) {
     if ((await page.locator('.segmented button[data-value="left"]').getAttribute('aria-checked')) !== 'true') fail('segment not selected');
   }
 
+  // The screenshot shows the sheet as it opened, before the switch below moves.
+  await writeFile(join(OUT, `${scenario.name}.png`), await page.screenshot({ fullPage: true }));
+
   // Turning the site switch off saves a per-site patch.
   if (scenario.name === 'active') {
     await page.locator('#site').click({ force: true });
     const saved = await page.evaluate(() => globalThis.__calls.saved);
     if (!saved.some((p) => Array.isArray(p.disabledSites) && p.disabledSites.includes('example.com'))) fail('site switch did not save');
   }
-
-  await writeFile(join(OUT, `${scenario.name}.png`), await page.screenshot({ fullPage: true }));
 
   // (A missing action button was reported above.)
   if (scenario.click && (await action.isVisible())) {
