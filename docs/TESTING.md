@@ -642,8 +642,15 @@ are on. In the pose that has them on the left, answer section 3. Then unfold. Th
 one entry per pose, keyed by orientation and `clientWidth`, with the section 3 answer given in
 that pose. It keeps them only until the page reloads, so visit all poses without reloading.
 
-**Report.** The report is JSON: `poses`, `duofari` (the Duofari line) and `scrollX`. **Copy
-report** copies it.
+**6. Safari's solid fill.** **Show sidebar** toggles a teal box fixed to the right edge of the
+layout viewport over its full height. That is the shape WebKit's `fixedContainerEdges` sampler
+treats as a sidebar, which should make Safari paint its column a solid colour. Do it in portrait
+after the paint test, look at the column beside the box, and answer "Is the column a solid
+colour, with no stripes or header art showing under the controls?" The report keeps the answer
+with that pose as `solidFillWithSidebar` (open question 3).
+
+**Report.** The report is JSON: `poses` (each with the answers given in that pose), `duofari`
+(the Duofari line) and `scrollX`. **Copy report** copies it.
 
 **A long read.** Paragraphs to scroll through. They must always end left of the controls.
 
@@ -872,6 +879,7 @@ change. When hardware numbers differ from the emulation, also update `POSES` in
 ### 3. When does Safari cover the column with a solid colour?
 
 - **Check.**
+  - Device page section 6 (a full-height fixed sidebar), answered **Yes** or **No**.
   - `news.html` (fixed masthead and cookie bar) and `blog.html` (sticky header).
   - A real site with a full-height fixed menu or modal open.
   - Note when the column turns a solid colour instead of showing the page through glass.

@@ -28,6 +28,10 @@
      painted under it (the "border recipe"). */
   .paint-test { height: 72px; margin: 0 -16px; width: calc(100% + 32px); box-sizing: content-box; border-right: 0 solid transparent; background-origin: border-box; background-clip: border-box; }
   .lift-test { position: fixed; bottom: 0; left: 0; width: 100%; height: 28px; z-index: 5; display: none; box-sizing: content-box; border-right: 0 solid transparent; translate: 0px 0px; }
+  /* Covers the right edge's midpoint over the full height: the shape WebKit's
+     fixedContainerEdges sampler treats as a sidebar, which makes Safari paint
+     its column a solid colour. */
+  .sidebar-test { position: fixed; top: 0; right: 0; width: 120px; height: 100%; z-index: 6; display: none; background: #0f766e; color: #fff; padding: 12px; box-sizing: border-box; font-size: 0.85em; }
   .left-test { height: 40px; margin: 0 -16px; position: relative; left: -84px; width: calc(100% + 32px + 84px); }
   .hero { aspect-ratio: 16 / 9; background: linear-gradient(135deg, #5b21b6, #db2777 55%, #f59e0b); display: grid; place-items: end start; padding: 16px; box-sizing: border-box; color: #fff; }
   .hero h1 { font-size: 1.8em; }
@@ -59,7 +63,7 @@
   <h2>3. The other side</h2>
   <p>This bar is pushed 84 points past the left edge. In portrait that is off the screen whatever WebKit does, so check it in landscape with Safari’s controls on the left (see section 5), where the bar’s left end would sit under the controls. WebKit shouldn’t let pages paint there (it clamps overflow at the start edge), which is why Duofari leaves a column on a page’s start side alone. The page should not scroll left either.</p>
   <div class="left-test stripes"></div>
-  <p>With the controls on the left: do stripes show under them? <button type="button" class="answer" data-answer="yes">Yes</button> <button type="button" class="answer" data-answer="no">No</button> <span id="answered" class="muted"></span></p>
+  <p>With the controls on the left: do stripes show under them? <button type="button" class="answer" data-question="stripesUnderLeftControls" data-answer="yes">Yes</button> <button type="button" class="answer" data-question="stripesUnderLeftControls" data-answer="no">No</button> <span id="answered-stripesUnderLeftControls" class="muted"></span></p>
 
   <h2>4. Sideways scrolling</h2>
   <p>After the paint test the page is wider than its viewport. Try to drag it sideways in the middle of the page: with Duofari’s “Hold pages steady” on, it shouldn’t move; with it off, it should slide back once you let go. Also try swiping back from the left edge, and double-tapping text.</p>
@@ -67,6 +71,12 @@
 
   <h2>5. Rotate and unfold</h2>
   <p>Turn the phone sideways both ways and note which side Safari’s controls are on, and answer section 3 in the pose that has them on the left. Then unfold it. The table above updates; the report records each pose you visit, with your answer.</p>
+
+  <h2>6. Safari’s solid fill</h2>
+  <p>Safari tints its column from the page. When a fixed box runs down the whole right edge, WebKit treats it as a sidebar and Safari paints the column a solid colour instead, hiding whatever a page extends there. Tap <b>Show sidebar</b> (in portrait, after the paint test) and look at the column beside the teal box.</p>
+  <p><button type="button" id="toggle-sidebar">Show sidebar</button></p>
+  <p>Is the column a solid colour, with no stripes or header art showing under the controls? <button type="button" class="answer" data-question="solidFillWithSidebar" data-answer="yes">Yes</button> <button type="button" class="answer" data-question="solidFillWithSidebar" data-answer="no">No</button> <span id="answered-solidFillWithSidebar" class="muted"></span></p>
+  <p class="muted">Duofari leaves full-height fixed overlays alone for this reason. If the column stays see-through here, that rule can be relaxed.</p>
 
   <h2>Report</h2>
   <p><button type="button" id="copy">Copy report</button> <span id="copied" class="muted"></span></p>
@@ -79,12 +89,13 @@
   <div style="height: 60vh"></div>
 </main>
 <div class="lift-test stripes" id="lift"></div>
+<div class="sidebar-test" id="sidebar" aria-hidden="true">Fixed sidebar</div>
 <script>
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
   const poses = {};
-  const answers = {}; // section 3, per pose
+  const answers = {}; // the yes/no answers, per pose
   const poseKey = (env) => env.orientation + ' ' + env.clientWidth;
 
   function measure() {
@@ -158,11 +169,18 @@
   for (const button of document.querySelectorAll('.answer')) {
     button.addEventListener('click', () => {
       const env = measure();
-      answers[poseKey(env)] = { stripesUnderLeftControls: button.dataset.answer === 'yes' };
-      $('answered').textContent = `Saved for ${env.orientation}`;
+      const key = poseKey(env);
+      const question = button.dataset.question;
+      answers[key] = { ...answers[key], [question]: button.dataset.answer === 'yes' };
+      $(`answered-${question}`).textContent = `Saved for ${env.orientation}`;
       render();
     });
   }
+  $('toggle-sidebar').addEventListener('click', () => {
+    const shown = $('sidebar').style.display === 'block';
+    $('sidebar').style.display = shown ? 'none' : 'block';
+    $('toggle-sidebar').textContent = shown ? 'Show sidebar' : 'Hide sidebar';
+  });
   $('copy').addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText($('report').textContent);
