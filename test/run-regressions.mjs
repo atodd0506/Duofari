@@ -572,6 +572,30 @@ const LIFECYCLE = [
     },
   },
   {
+    name: 'r7-controller-1',
+    what: "a page that allows zooming out (minimum-scale=0.25, like Wikipedia's) keeps its fixed banner in place",
+    html: `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, minimum-scale=0.25, maximum-scale=5.0">
+<style>body { margin: 0; font: 16px/1.5 system-ui, sans-serif; } #center { background: #eaecf0; } main { background: #fff; } p { padding: 0 16px; margin: 0 0 12px; }
+.banner { position: fixed; top: 440px; left: 19px; right: 19px; bottom: 0; background: rgb(239, 173, 86); text-align: center; }</style>
+</head><body><div id="center"><main>${paragraphs(30)}<div class="banner" id="banner">We rely on readers who give what they can</div></main></div></body></html>`,
+    async run({ p, failures }) {
+      const read = () => p.evaluate(() => {
+        const r = document.getElementById('banner').getBoundingClientRect();
+        return { left: r.left, right: r.right, meta: document.querySelector('meta[name="viewport"]').getAttribute('content') };
+      });
+      const plain = await read();
+      await injectDuofari(p);
+      await settle(p, 300);
+      const on = await read();
+      if (!near(on.left, plain.left) || !near(on.right, plain.right)) failures.push(`the banner moved: ${plain.left}–${plain.right} → ${on.left}–${on.right}`);
+      if (!/minimum-scale=1$/.test(on.meta)) failures.push(`the meta still lets the reader zoom out: ${on.meta}`);
+      await turnOff(p);
+      const off = await read();
+      if (off.meta !== plain.meta) failures.push(`the meta was not put back: ${off.meta}`);
+    },
+  },
+  {
     name: 'r5-controller-1',
     what: 'rotating an ordinary iPhone while zoomed in still says it is not an iPhone Duo',
     html: page('header { background: #036; color: #fff; padding: 16px; }', `<header>Site</header>${paragraphs(20)}`),

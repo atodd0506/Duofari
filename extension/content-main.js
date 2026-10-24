@@ -161,8 +161,10 @@
     state.lastScrollY = globalThis.scrollY;
     state.cursor = stats.cursor;
     clearTimeout(state.resumeTimer);
+    state.resumeTimer = 0;
     if (stats.cursor) {
       state.resumeTimer = setTimeout(() => {
+        state.resumeTimer = 0;
         if (state.timer) return; // a scan is on its way, and goes on from the cursor too
         state.resuming = true;
         run();
@@ -224,6 +226,8 @@
   function resetChanges() {
     D.revertAll();
     state.cursor = null; // the next pass starts from the page's own layout
+    clearTimeout(state.resumeTimer);
+    state.resumeTimer = 0;
   }
 
   /** Counts on/off changes; true (stand down) if they come too fast. */
@@ -277,7 +281,12 @@
     if (!/initial-scale/i.test(content)) additions.push('initial-scale=1');
     // A minimum above the page's initial scale would zoom it in and lay it out narrower.
     const initial = parseFloat((/initial-scale\s*=\s*([\d.]+)/i.exec(content) || [])[1]);
-    if (!/minimum-scale/i.test(content)) additions.push(`minimum-scale=${initial > 0 && initial < 1 ? initial : 1}`);
+    const floor = initial > 0 && initial < 1 ? initial : 1;
+    // A lower one (Wikipedia allows 0.25) lets the reader zoom out over what
+    // Duofari added beside the page, and fixed bars stretch along. The later
+    // value wins.
+    const minimum = parseFloat((/minimum-scale\s*=\s*([\d.]+)/i.exec(content) || [])[1]);
+    if (!(minimum >= floor)) additions.push(`minimum-scale=${floor}`);
     if (!additions.length) return;
     const next = `${content.trim().replace(/[\s,;]+$/, '')}, ${additions.join(', ')}`;
     if (!state.meta || state.meta.el !== meta) state.meta = { el: meta, content, ours: next };
