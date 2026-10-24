@@ -11,11 +11,24 @@
 import { readFile, readdir, mkdir, writeFile, stat } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { crc32, deflateRawSync } from 'node:zlib';
+import { deflateRawSync } from 'node:zlib';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXT = join(ROOT, 'extension');
 const IGNORE = new Set(['.DS_Store', 'Thumbs.db']);
+
+// CRC-32 as ZIP uses it. zlib.crc32 only exists from Node 22.2, and
+// package.json allows any Node 22.
+const CRC_TABLE = new Uint32Array(256).map((_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c;
+});
+function crc32(data) {
+  let c = 0xffffffff;
+  for (const byte of data) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
 
 async function listFiles(dir) {
   const out = [];

@@ -7,7 +7,10 @@
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font: 16px system-ui, sans-serif; }
-  header { position: relative; height: 56px; background: #1e3a8a; color: #fff; padding: 16px; overflow: hidden; }
+  /* The cover .art makes Duofari extend the header with the padding recipe,
+     so the menu and search panel, which open inside it later, are laid out
+     against the grown padding box until Duofari pins them back. */
+  header { position: relative; height: 56px; background: #1e3a8a; color: #fff; padding: 16px; }
   header .art { position: absolute; inset: 0; background: linear-gradient(90deg, #1e3a8a, #6d28d9); }
   header .title { position: relative; }
   .menu-button { position: absolute; right: 12px; top: 10px; }
@@ -17,16 +20,15 @@
   .search { display: none; position: absolute; left: 0; right: 0; top: 56px; padding: 8px 16px; background: #f1f5f9; }
   .search input { width: 100%; }
   .searching .search { display: block; }
-  .wrap { position: relative; }
 </style>
 </head>
 <body>
-  <div class="wrap" id="wrap">
+  <div id="wrap">
     <header data-expect="bleed" id="hdr"><div class="art"></div><span class="title" data-expect="inset">Site</span>
       <button class="menu-button" data-expect="inset" onclick="document.getElementById('wrap').classList.toggle('open')">Menu</button>
+      <nav class="menu"><a href="#">Home</a><a href="#">About</a><a href="#">Contact</a></nav>
+      <div class="search"><input placeholder="Search"></div>
     </header>
-    <nav class="menu"><a href="#">Home</a><a href="#">About</a><a href="#">Contact</a></nav>
-    <div class="search"><input placeholder="Search"></div>
   </div>
   <p style="margin:16px" data-expect="inset">Opening the menu or search after Duofari has run must not put them under Safari's controls.</p>
   <div style="height:900px"></div>

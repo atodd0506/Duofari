@@ -11,9 +11,10 @@
   /* 1. Accordion row: chevron drawn by ::after at right:16px. */
   .faq-q { position: relative; padding: 14px 16px; background: #eef2ff; }
   .faq-q::after { content: "›"; position: absolute; right: 16px; top: 10px; font-size: 22px; }
-  /* 2. List row with a chevron as a background image on the right. */
+  /* 2. List row with a chevron as a background image on the right (its tip,
+     at mid-height, covers x 361-363: the pixel probes sit there). */
   .row { padding: 14px 40px 14px 16px; background: #fff7e6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Cpath d='M3 1l6 5-6 5' fill='none' stroke='%23000' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 16px center; }
-  /* 3. Header with a centred logo background. */
+  /* 3. Header with a centred logo background (x 151-231). */
   .logo-bar { height: 56px; background: #102a43 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='24'%3E%3Crect width='80' height='24' rx='6' fill='%23f0b429'/%3E%3C/svg%3E") no-repeat center; }
   /* 4. Ratio box: grey placeholder, cover photo at inset:0, a badge. */
   .ratio { position: relative; padding-top: 56.25%; overflow: hidden; background: #ddd; }
@@ -43,8 +44,8 @@
 </head>
 <body>
   <section><div class="faq-q" data-expect="bleed" data-pseudo-check><span data-expect="inset">1. Accordion row with a ::after chevron</span></div></section>
-  <section class="row" data-expect="bleed" data-probe="358,#000000"><span data-expect="inset">2. Row with a background chevron</span></section>
-  <section class="logo-bar" data-expect="bleed" data-probe="191,#f0b429"></section>
+  <section class="row" data-expect="bleed" data-probe-same="361,362,363"><span data-expect="inset">2. Row with a background chevron</span></section>
+  <section class="logo-bar" data-expect="bleed" data-probe-same="160,191,222"></section>
   <section class="ratio" data-expect="bleed" data-probe-column="image"><img data-expect="bleed" alt="" src="img/hero.jpg"><span class="badge" data-expect="inset">12:34</span></section>
   <section class="dim" data-expect="bleed" data-probe-column="#005200"><button data-expect="inset">Menu</button><h3 data-expect="inset">5. Dimmed hero</h3></section>
   <section class="trans" data-expect="bleed"><span data-expect="inset">6. Header with transition: all</span></section>

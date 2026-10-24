@@ -57,15 +57,16 @@
   <p>The test also shows a striped bar fixed to the bottom of the page, lifted into its own layer like Duofari does. It should reach under the controls too, and stay put as you scroll.</p>
 
   <h2>3. The other side</h2>
-  <p>This bar is pushed 84 points past the left edge. WebKit shouldn’t let pages paint there (it clamps overflow at the start edge). You should see its left end cut off at the screen edge, and the page should not scroll left.</p>
+  <p>This bar is pushed 84 points past the left edge. In portrait that is off the screen whatever WebKit does, so check it in landscape with Safari’s controls on the left (see section 5), where the bar’s left end would sit under the controls. WebKit shouldn’t let pages paint there (it clamps overflow at the start edge), which is why Duofari leaves a column on a page’s start side alone. The page should not scroll left either.</p>
   <div class="left-test stripes"></div>
+  <p>With the controls on the left: do stripes show under them? <button type="button" class="answer" data-answer="yes">Yes</button> <button type="button" class="answer" data-answer="no">No</button> <span id="answered" class="muted"></span></p>
 
   <h2>4. Sideways scrolling</h2>
   <p>After the paint test the page is wider than its viewport. Try to drag it sideways in the middle of the page: with Duofari’s “Hold pages steady” on, it shouldn’t move; with it off, it should slide back once you let go. Also try swiping back from the left edge, and double-tapping text.</p>
   <p id="scroll" class="muted">scrollX: 0</p>
 
   <h2>5. Rotate and unfold</h2>
-  <p>Turn the phone sideways both ways and note which side Safari’s controls are on, then unfold it. The table above updates; the report records each pose you visit.</p>
+  <p>Turn the phone sideways both ways and note which side Safari’s controls are on, and answer section 3 in the pose that has them on the left. Then unfold it. The table above updates; the report records each pose you visit, with your answer.</p>
 
   <h2>Report</h2>
   <p><button type="button" id="copy">Copy report</button> <span id="copied" class="muted"></span></p>
@@ -83,6 +84,8 @@
   'use strict';
   const $ = (id) => document.getElementById(id);
   const poses = {};
+  const answers = {}; // section 3, per pose
+  const poseKey = (env) => env.orientation + ' ' + env.clientWidth;
 
   function measure() {
     const root = document.documentElement;
@@ -121,8 +124,8 @@
 
   function render() {
     const env = measure();
-    const key = env.orientation + ' ' + env.clientWidth;
-    poses[key] = env;
+    const key = poseKey(env);
+    poses[key] = { ...env, ...answers[key] };
     $('env').innerHTML = '';
     for (const [k, v] of Object.entries(env)) {
       const tr = document.createElement('tr');
@@ -152,6 +155,14 @@
     $('run-paint').textContent = `Painting ${c} px under the column`;
     setTimeout(render, 100);
   });
+  for (const button of document.querySelectorAll('.answer')) {
+    button.addEventListener('click', () => {
+      const env = measure();
+      answers[poseKey(env)] = { stripesUnderLeftControls: button.dataset.answer === 'yes' };
+      $('answered').textContent = `Saved for ${env.orientation}`;
+      render();
+    });
+  }
   $('copy').addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText($('report').textContent);

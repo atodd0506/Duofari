@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Runs Duofari against live websites in an emulated folded iPhone Duo and
 // checks the invariants that must hold on any page:
-//   - no text or control moves sideways;
+//   - no text or control moves, sideways or up and down;
 //   - no hidden text becomes visible beside the viewport;
 //   - the page doesn't stay scrolled sideways;
-//   - turning Duofari off restores every element it touched.
+//   - turning Duofari off restores every element it touched, the touch
+//     settings of html and body, and the viewport meta;
+//   - no error is thrown from Duofari's code.
 // Writes before/after previews to test/output/live/.
 //
 //   node test/run-live.mjs                 # the default site list
@@ -14,7 +16,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPlaywright } from './lib/playwright.mjs';
-import { POSES, newDuoContext, orientPage, injectDuofari, snapshot, duofariState, checkInvariants, settle } from './lib/duo.mjs';
+import {
+  POSES, SOURCE_URL, newDuoContext, orientPage, injectDuofari, snapshot, duofariState, checkInvariants, settle, emulateSafariMinimumScale,
+} from './lib/duo.mjs';
 import { capturePair, pageBackground, renderPreview } from './lib/preview.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -53,17 +57,21 @@ for (const url of urls) {
   const page = await context.newPage();
   await orientPage(page, 'folded');
   const errors = [];
-  page.on('pageerror', (e) => { if (/Duofari|content-(bleed|classify|main|guard|geometry)/.test(e.stack || e.message)) errors.push(e.message); });
+  // Only errors thrown in Duofari's own code: live pages throw plenty of their own.
+  page.on('pageerror', (e) => { if ((e.stack || '').includes(SOURCE_URL)) errors.push(e.message); });
   const line = { url, name };
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {});
     await settle(page, 1500);
-    // Emulate Safari's minimum scale (see emulateSafariMinimumScale).
+    await emulateSafariMinimumScale(page);
+    // What turning Duofari off has to give back besides the elements it
+    // records: the touch settings of html and body, and the viewport meta.
     await page.evaluate(() => {
+      const touch = (el) => ['touch-action', 'overscroll-behavior-x'].map((p) => `${el.style.getPropertyValue(p)} ${el.style.getPropertyPriority(p)}`).join('; ');
       const metas = document.querySelectorAll('meta[name="viewport" i]');
       const meta = metas[metas.length - 1];
-      if (meta && /device-width/i.test(meta.content) && !/minimum-scale/i.test(meta.content)) meta.content += ', minimum-scale=1';
+      globalThis.__duofariBefore = { touch, html: touch(document.documentElement), body: touch(document.body), meta: meta ? meta.getAttribute('content') : null };
     });
     const vw = await page.evaluate(() => document.documentElement.clientWidth);
     const fill = await pageBackground(page);
@@ -97,12 +105,34 @@ for (const url of urls) {
       await writeFile(join(OUT, `${name}.png`), await renderPreview(browser, {
         before: shotBefore, after: shotAfter, fill, C, vw, vh: pose.viewport.height, title: url,
       }));
-      const leftovers = await page.evaluate(() => {
-        globalThis.Duofari.controller.state.settings.enabled = false;
-        globalThis.Duofari.controller.run();
-        return globalThis.Duofari.records.size;
-      });
-      if (leftovers) failures.push(`${leftovers} elements still modified after turning off`);
+      // Turning Duofari off puts back every style attribute it touched, as
+      // the page had it, and the meta and touch settings it started with.
+      // (Records are dropped whether or not the styles came back, so their
+      // count alone proves nothing.)
+      failures.push(...await page.evaluate(() => {
+        const D = globalThis.Duofari;
+        const before = globalThis.__duofariBefore;
+        const touched = [...D.records.values()].map((rec) => [rec.el, rec.styleAttr]);
+        D.controller.state.settings.enabled = false;
+        D.controller.run();
+        const out = [];
+        const label = (el) => `${el.localName}${el.id ? '#' + el.id : ''}${typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/).join('.') : ''}`;
+        if (D.records.size) out.push(`${D.records.size} elements still recorded after turning off`);
+        for (const [el, attr] of touched) {
+          const now = el.getAttribute('style');
+          if (now !== attr) out.push(`${label(el)} not restored: style ${JSON.stringify(now)}, was ${JSON.stringify(attr)}`);
+        }
+        let marks = document.querySelectorAll('[data-duofari]').length;
+        for (const host of document.querySelectorAll('*')) if (host.shadowRoot) marks += host.shadowRoot.querySelectorAll('[data-duofari]').length;
+        if (marks) out.push(`${marks} elements still marked data-duofari`);
+        for (const [key, el] of [['html', document.documentElement], ['body', document.body]]) {
+          if (before.touch(el) !== before[key]) out.push(`${key} touch settings not restored: "${before.touch(el)}", was "${before[key]}"`);
+        }
+        const metas = document.querySelectorAll('meta[name="viewport" i]');
+        const meta = metas[metas.length - 1];
+        if ((meta ? meta.getAttribute('content') : null) !== before.meta) out.push(`viewport meta not restored: ${meta && meta.getAttribute('content')}, was ${before.meta}`);
+        return out;
+      }));
     }
     failures.push(...errors.map((e) => `script error: ${e}`));
     line.failures = failures;

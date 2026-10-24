@@ -9,12 +9,19 @@
   body { margin: 0; font: 16px system-ui, sans-serif; }
   header { background: #c00; color: #fff; padding: 20px 16px; }
   .hero { display: block; width: 100%; height: 220px; object-fit: cover; }
+  /* With ?parked, a slide parked past the right edge that only body's clip
+     hides. Body can't reach into the column then: it would show the slide. */
+  .track { display: none; }
+  .parked .track { display: flex; width: 200%; }
+  .track > div { flex: 0 0 50%; padding: 16px; background: #eee; }
 </style>
+<script>if (location.search === '?parked') document.documentElement.classList.add('parked');</script>
 </head>
 <body>
   <header data-expect="bleed" data-probe-column="#cc0000"><span data-expect="inset">The classic WordPress fix: html and body both hide overflow</span></header>
   <img class="hero" data-expect="bleed" data-probe-column="image" alt="" src="img/banner.jpg">
   <p data-expect="inset" style="margin:16px">Body becomes a clipping box here, so it has to reach into the column too.</p>
+  <div class="track"><div>First slide</div><div>Second slide text that must stay hidden</div></div>
   <div style="height:900px"></div>
 </body>
 </html>

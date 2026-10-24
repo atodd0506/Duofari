@@ -2,7 +2,7 @@
 // layout width, zoom, orientation, viewport meta), does Duofari find Safari's
 // side column, and does it stay out of the way everywhere else?
 //
-//   node --test test/unit
+//   node --test "test/unit/*.test.mjs"   # or: npm run test:unit
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

@@ -40,6 +40,9 @@ const SCRIPTS = [
   'content-main.js',
 ];
 
+/** The file name the injected scripts carry in stack traces, so errors can be traced to Duofari. */
+export const SOURCE_URL = 'duofari-content.js';
+
 let scriptSource = null;
 export async function extensionSource() {
   if (!scriptSource) {
@@ -49,7 +52,8 @@ export async function extensionSource() {
       throw new Error(`manifest content scripts changed: ${files.join(', ')}`);
     }
     const parts = await Promise.all(files.map((f) => readFile(join(ROOT, 'extension', f), 'utf8')));
-    scriptSource = parts.map((src, i) => `// ${files[i]}\n${src}`).join('\n;\n');
+    // An inline script's frames would otherwise read `<anonymous>`.
+    scriptSource = `${parts.map((src, i) => `// ${files[i]}\n${src}`).join('\n;\n')}\n//# sourceURL=${SOURCE_URL}\n`;
   }
   return scriptSource;
 }
@@ -96,6 +100,8 @@ export async function injectDuofari(page, settings = {}) {
  * width. Safari on iPhone keeps the minimum scale at 1 for pages with
  * width=device-width and an initial scale (WebKit ViewportConfiguration), so
  * fixed elements stay beside the column. Pin Chromium to the same minimum.
+ * Only there: a page without an initial scale is the one Duofari has to fix
+ * itself, and a pin added here would hide a missing fix.
  */
 export async function emulateSafariMinimumScale(page) {
   await page.evaluate(() => {
@@ -103,7 +109,7 @@ export async function emulateSafariMinimumScale(page) {
     const meta = metas[metas.length - 1];
     if (!meta) return;
     const content = meta.getAttribute('content') || '';
-    if (/device-width/i.test(content) && !/minimum-scale/i.test(content)) {
+    if (/device-width/i.test(content) && /initial-scale/i.test(content) && !/minimum-scale/i.test(content)) {
       meta.setAttribute('content', `${content}, minimum-scale=1`);
     }
   });
@@ -116,8 +122,8 @@ export async function settle(page, ms = 450) {
 
 /**
  * Records where every text run, form control and annotated element sits.
- * Text positions are compared horizontally only: an image that grows can push
- * text down, but nothing may move sideways or into the column.
+ * Nothing may move sideways or into the column, and nothing may move up or
+ * down unless the case allows it (breakout grows photos and pushes text down).
  */
 export async function snapshot(page) {
   return page.evaluate(() => {
@@ -127,7 +133,12 @@ export async function snapshot(page) {
     // cut off by any clipping ancestor's padding box.
     const clipsAt = (el) => {
       const cs = getComputedStyle(el);
-      if (el === document.documentElement || el === document.body) return null;
+      if (el === document.documentElement) return null;
+      if (el === document.body) {
+        // body's overflow goes to the viewport, unless html's isn't visible.
+        const root = getComputedStyle(document.documentElement);
+        if (root.overflowX === 'visible' && root.overflowY === 'visible') return null;
+      }
       if (cs.overflowX === 'visible' && cs.overflowY === 'visible' && cs.clipPath === 'none' && !/paint|strict|content/.test(cs.contain)) return null;
       const r = el.getBoundingClientRect();
       return { left: r.left + parseFloat(cs.borderLeftWidth), right: r.right - parseFloat(cs.borderRightWidth) };
@@ -183,7 +194,7 @@ export async function snapshot(page) {
       if (!el.isConnected) return;
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height) return;
-      out.controls.push({ id, tag: el.localName, label: (el.textContent || el.value || '').trim().slice(0, 30), left: r.left, right: r.right });
+      out.controls.push({ id, tag: el.localName, label: (el.textContent || el.value || '').trim().slice(0, 30), left: r.left, right: r.right, top: r.top });
     });
 
     const all = [...document.querySelectorAll('[data-expect]')];
@@ -233,20 +244,23 @@ export async function duofariState(page) {
 }
 
 /**
- * Compares two snapshots and returns a list of human-readable failures.
- * @param {object} opts { C, left, right, bleedExpected }
+ * Compares two snapshots, taken at the same scroll position, and returns a
+ * list of human-readable failures.
+ * @param {object} opts { C, left, right, strictExpect, vertical: false where layout may grow downwards }
  */
-export function checkInvariants(before, after, { C, left = false, right = true, strictExpect = true } = {}) {
+export function checkInvariants(before, after, { C, left = false, right = true, strictExpect = true, vertical = true } = {}) {
   const failures = [];
   const vw = after.vw;
   const near = (a, b, eps = 1) => Math.abs(a - b) <= eps;
 
-  // 1. No text moves sideways, and none ends up in the column.
+  // 1. No text moves sideways (or up or down), and none ends up in the column.
   const beforeText = new Map(before.text.map((t) => [t.id, t]));
   for (const t of after.text) {
     const b = beforeText.get(t.id);
     if (b && (!near(b.left, t.left, 0.75) || !near(b.right, t.right, 0.75))) {
       failures.push(`text moved sideways: "${t.text}" ${b.left.toFixed(1)}–${b.right.toFixed(1)} → ${t.left.toFixed(1)}–${t.right.toFixed(1)}`);
+    } else if (b && vertical && !near(b.top, t.top)) {
+      failures.push(`text moved vertically: "${t.text}" top ${b.top.toFixed(1)} → ${t.top.toFixed(1)}`);
     }
     const wasOut = b && (b.right > vw + 0.5 || b.left < -0.5);
     if (!wasOut && (t.right > vw + 0.5 || t.left < -0.5)) {
@@ -265,6 +279,8 @@ export function checkInvariants(before, after, { C, left = false, right = true, 
     const a = afterControls.get(c.id);
     if (a && (!near(a.left, c.left, 0.75) || !near(a.right, c.right, 0.75))) {
       failures.push(`control moved: <${c.tag}> "${c.label}" ${c.left.toFixed(1)}–${c.right.toFixed(1)} → ${a.left.toFixed(1)}–${a.right.toFixed(1)}`);
+    } else if (a && vertical && !near(a.top, c.top)) {
+      failures.push(`control moved vertically: <${c.tag}> "${c.label}" top ${c.top.toFixed(1)} → ${a.top.toFixed(1)}`);
     }
   });
 
@@ -295,6 +311,10 @@ export function checkInvariants(before, after, { C, left = false, right = true, 
         default:
           break; // lenient expectations ("bleed-or-inset" etc.) are informational
       }
+      // Only breakout may change a box's height (and push what follows down).
+      if (vertical && ['bleed', 'inset', 'none'].includes(b.expect) && (!near(a.top, b.top) || !near(a.height, b.height))) {
+        failures.push(`expected ${b.name} to keep its top and height: ${b.top.toFixed(1)}+${b.height.toFixed(1)} → ${a.top.toFixed(1)}+${a.height.toFixed(1)}`);
+      }
       if (b.pseudo !== null && b.pseudo !== a.pseudo) {
         failures.push(`pseudo-element of ${b.name} moved: ${b.pseudo} → ${a.pseudo}`);
       }
@@ -307,20 +327,35 @@ export function checkInvariants(before, after, { C, left = false, right = true, 
  * Pixel probes declared on fixture elements, in document coordinates:
  *   data-probe-column="image|page|#rrggbb"  the middle of the column strip at
  *                                          the element's height (data-probe-y,
- *                                          a fraction, default 0.5)
+ *                                          a fraction, default 0.5), for a
+ *                                          column on the right
  *   data-probe-same="x1,x2"                these points inside the page look
  *                                          the same before and after
+ * Column points carry the background colours of the element and its
+ * ancestors: an "image" that shows one of them is a band, not the art.
  */
 export async function probePoints(page, C) {
   return page.evaluate((C) => {
     const vw = document.documentElement.clientWidth;
     const points = [];
+    // A misspelt probe would otherwise be skipped without a word.
+    for (const el of document.querySelectorAll('*')) {
+      const unknown = el.getAttributeNames().find((a) => a.startsWith('data-probe') && !/^data-probe-(column|same|y)$/.test(a));
+      if (unknown) throw new Error(`unknown pixel probe ${unknown} on <${el.localName}>`);
+    }
     for (const el of document.querySelectorAll('[data-probe-column],[data-probe-same]')) {
       const r = el.getBoundingClientRect();
       const fy = parseFloat(el.getAttribute('data-probe-y') || '0.5');
       const y = Math.round(r.top + scrollY + r.height * fy);
       const name = `${el.localName}${el.className && typeof el.className === 'string' ? '.' + el.className.split(' ')[0] : ''}${el.id ? '#' + el.id : ''}`;
-      if (el.hasAttribute('data-probe-column')) points.push({ name, kind: 'column', want: el.getAttribute('data-probe-column'), x: Math.round(vw + C / 2), y });
+      if (el.hasAttribute('data-probe-column')) {
+        const backgrounds = [];
+        for (let a = el; a; a = a.parentElement) {
+          const bg = getComputedStyle(a).backgroundColor;
+          if (!/^rgba\(.*, 0\)$/.test(bg)) backgrounds.push(bg);
+        }
+        points.push({ name, kind: 'column', want: el.getAttribute('data-probe-column'), x: Math.round(vw + C / 2), y, backgrounds });
+      }
       if (el.hasAttribute('data-probe-same')) {
         for (const x of el.getAttribute('data-probe-same').split(',')) points.push({ name, kind: 'same', x: Math.round(parseFloat(x)), y });
       }
