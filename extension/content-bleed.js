@@ -18,7 +18,7 @@
   const ABS_SCAN_LIMIT = HIDDEN_SCAN_LIMIT; // past these the padding recipe isn't used
   const ABS_KEEP_LIMIT = 400;
   const LATE_SCAN_LIMIT = 2000;             // per scan, for positioned boxes that appear later
-  const NEAR_PSEUDO_LIMIT = 8;              // children whose pseudo-elements are read up front
+  const NEAR_PSEUDO_LIMIT = 8;              // children, and grandchildren, whose pseudo-elements are read up front
   const MARK = 'data-duofari';
   D.MARK = MARK;
 
@@ -166,9 +166,17 @@
     return true;
   };
 
-  /** Whether `prop` still holds the value Duofari applied. */
+  /**
+   * Whether `prop` still holds the value Duofari applied. The same non-zero
+   * length written back without priority is an echo of the computed style,
+   * not a value of the page's own (a zero or a keyword may well be): a
+   * modal's scroll lock reads <body>'s padding and writes it back, and
+   * Bootstrap saves that and puts it back on close.
+   */
   function ours(style, prop, value) {
-    return style.getPropertyPriority(prop) === 'important' && normalise(style.getPropertyValue(prop)) === normalise(value);
+    const now = normalise(style.getPropertyValue(prop));
+    if (now !== normalise(value)) return false;
+    return style.getPropertyPriority(prop) === 'important' || (/^-?[\d.]+px$/.test(now) && parseFloat(now) !== 0);
   }
 
   function normalise(value) {
@@ -744,9 +752,11 @@
     const own = pseudoBoxes(el, before, pictures);
     // Pseudo-elements cost several times more to read than boxes, and those
     // inside only move with the padding box: read them for that recipe. Its
-    // first children's are read now, as that is where a tint or art drawn by
-    // one (`.hero .wrap::before`) sits.
-    const kids = abs.statics.filter((node) => parentOf(node) === el).slice(0, NEAR_PSEUDO_LIMIT);
+    // first children's and grandchildren's are read now, as that is where a
+    // tint or art drawn by one (`.hero .wrap::before`, inside a container
+    // too) sits.
+    const children = abs.statics.filter((node) => parentOf(node) === el).slice(0, NEAR_PSEUDO_LIMIT);
+    const kids = [...children, ...abs.statics.filter((node) => children.includes(parentOf(node))).slice(0, NEAR_PSEUDO_LIMIT)];
     const near = kids.flatMap((node) => pseudoBoxes(node, before, pictures));
     let inner = null;
     const sample = contentSample(el);

@@ -1399,6 +1399,220 @@ const ENGINE = [
       if (s.scans > 1) failures.push(`${s.scans} scans in 2 s of an idle page`);
     },
   },
+
+  {
+    name: 'r4-engine-1',
+    what: 'a band after thousands of elements is reached while a clock in the header changes several times a second',
+    html: page(`
+      header, .band { background: #036; color: #fff; padding: 16px; }
+      .r { height: 4px; overflow: hidden; font-size: 2px; }`,
+    `<header>Top <span id="clock"></span></header>${Array.from({ length: 7000 }, (_, i) => `<div class="r">Row ${i}</div>`).join('')}
+      <section class="band" id="deep">Deep band</section>${paragraphs(30)}
+      <script>let n = 0; setInterval(() => { document.getElementById('clock').innerHTML = '<b>' + ++n + '</b>'; }, 200);</script>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      await p.evaluate(() => document.getElementById('deep').scrollIntoView());
+      await settle(p, 2500);
+      const right = await p.evaluate(() => document.getElementById('deep').getBoundingClientRect().right);
+      if (!near(right, VW + C)) failures.push(`band after 7000 rows not extended (right edge ${right})`);
+    },
+  },
+
+  {
+    name: 'r4-engine-2',
+    what: 'a positioned <body> that clips is walked past on a slow phone while a clock in the header ticks',
+    html: page(`
+      html, body { overflow-x: hidden; }
+      body { position: relative; }
+      header { background: #036; color: #fff; padding: 12px 16px; }
+      .hero { background: linear-gradient(#a00, #600); height: 200px; }
+      .card { padding: 8px 16px; border-bottom: 1px solid #ddd; }`,
+    `<header>Site <span id="clock"></span></header><section class="hero" id="hero"></section>
+      <main>${Array.from({ length: 1500 }, (_, i) => `<div class="card"><h3>Item ${i}</h3><p>Lorem <b>ipsum</b> dolor.</p></div>`).join('')}</main>
+      <script>let n = 0; setInterval(() => { document.getElementById('clock').innerHTML = '<b>' + ++n + '</b>'; }, 250);</script>`),
+    async run({ p, cdp, failures }) {
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      await injectDuofari(p);
+      await settle(p, 3000);
+      const right = await p.evaluate(() => document.getElementById('hero').getBoundingClientRect().right);
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      if (!near(right, VW + C)) failures.push(`hero below the header not extended (right edge ${right})`);
+    },
+  },
+
+  {
+    name: 'r4-engine-3',
+    what: "a restyle of a menu <body> pinned, or a class on an opened wrapper, cuts no running transition inside",
+    html: page(`
+      html, body { overflow-x: hidden; }
+      body { position: relative; }
+      .site { overflow-x: hidden; }
+      .bar { position: sticky; top: 0; z-index: 5; background: rgb(0, 0, 255); color: #fff; padding: 12px 16px; transition: background-color 1s linear; }
+      .bar.dark, .site.dark .bar { background: rgb(255, 0, 0); }
+      .hero { background: linear-gradient(#a00, #600); height: 160px; }
+      .menu { position: absolute; top: 52px; right: 8px; width: 180px; background: #fff; border: 1px solid #ccc; z-index: 9; transition: opacity .2s; }
+      .menu.closing { opacity: 0; }`,
+    `<div class="site" id="site"><header class="bar" id="bar">Site</header><section class="hero"></section>${paragraphs(40)}</div>`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      // The bar's colour 600 ms into its 1 s change from blue to red.
+      const cut = (color) => {
+        const [r, , b] = color.match(/\d+/g).map(Number);
+        return r > 240 || b < 15;
+      };
+      // A dropdown appended to <body> is pinned there; closing it restyles
+      // the pin while the bar changes colour on its own.
+      await p.evaluate(() => {
+        const m = Object.assign(document.createElement('div'), { className: 'menu', id: 'menu', textContent: 'Account · Settings · Sign out' });
+        document.body.appendChild(m);
+      });
+      await settle(p, 600);
+      const pinned = await p.evaluate(() => {
+        const rec = globalThis.Duofari.records.get(document.getElementById('menu'));
+        return rec ? rec.kind : null;
+      });
+      if (pinned !== 'pin') failures.push(`the dropdown <body> holds was not pinned (${pinned})`);
+      const viaPin = await p.evaluate(async () => {
+        const bar = document.getElementById('bar');
+        const menu = document.getElementById('menu');
+        bar.classList.add('dark');
+        menu.classList.add('closing');
+        await new Promise((r) => setTimeout(r, 600));
+        const color = getComputedStyle(bar).backgroundColor;
+        await new Promise((r) => setTimeout(r, 600));
+        menu.remove();
+        bar.classList.remove('dark');
+        await new Promise((r) => setTimeout(r, 1200));
+        return color;
+      });
+      if (cut(viaPin)) failures.push(`closing the pinned dropdown cut the bar's colour change short: ${viaPin} 600 ms into 1 s`);
+      // A scroll state on the wrapper recolours the bar inside it.
+      const viaWrapper = await p.evaluate(async () => {
+        const site = document.getElementById('site');
+        site.classList.add('dark');
+        await new Promise((r) => setTimeout(r, 600));
+        return getComputedStyle(document.getElementById('bar')).backgroundColor;
+      });
+      if (cut(viaWrapper)) failures.push(`a class on the opened wrapper cut the bar's colour change short: ${viaWrapper} 600 ms into 1 s`);
+    },
+  },
+
+  {
+    name: 'r4-engine-4',
+    what: "Bootstrap's modal scroll-bar helper leaves <body> and a sticky bar with the page's own padding and margin",
+    html: page(`
+      html, body { overflow-x: hidden; }
+      .sticky-top { position: sticky; top: 0; z-index: 5; background: #036; color: #fff; padding: 12px 16px; }
+      .modal-open { overflow: hidden; }`,
+    `<header class="sticky-top" id="bar">Site</header>${paragraphs(40)}
+      <script>
+        // Bootstrap 5.3's ScrollBarHelper (js/src/util/scrollbar.js) and the
+        // Manipulator data attributes it uses, as Modal calls them.
+        const SELECTOR_FIXED_CONTENT = '.fixed-top, .fixed-bottom, .is-fixed, .sticky-top';
+        const SELECTOR_STICKY_CONTENT = '.sticky-top';
+        const dataKey = (key) => 'data-bs-' + key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
+        const Manipulator = {
+          setDataAttribute: (el, key, value) => el.setAttribute(dataKey(key), value),
+          removeDataAttribute: (el, key) => el.removeAttribute(dataKey(key)),
+          getDataAttribute: (el, key) => el.getAttribute(dataKey(key)),
+        };
+        class ScrollBarHelper {
+          constructor() { this._element = document.body; }
+          getWidth() { return Math.abs(window.innerWidth - document.documentElement.clientWidth); }
+          hide() {
+            const width = this.getWidth();
+            this._disableOverFlow();
+            this._setElementAttributes(this._element, 'padding-right', (v) => v + width);
+            this._setElementAttributes(SELECTOR_FIXED_CONTENT, 'padding-right', (v) => v + width);
+            this._setElementAttributes(SELECTOR_STICKY_CONTENT, 'margin-right', (v) => v - width);
+          }
+          reset() {
+            this._resetElementAttributes(this._element, 'overflow');
+            this._resetElementAttributes(this._element, 'padding-right');
+            this._resetElementAttributes(SELECTOR_FIXED_CONTENT, 'padding-right');
+            this._resetElementAttributes(SELECTOR_STICKY_CONTENT, 'margin-right');
+          }
+          _disableOverFlow() {
+            this._saveInitialAttribute(this._element, 'overflow');
+            this._element.style.overflow = 'hidden';
+          }
+          _setElementAttributes(selector, styleProperty, callback) {
+            const scrollbarWidth = this.getWidth();
+            this._applyManipulationCallback(selector, (element) => {
+              if (element !== this._element && window.innerWidth > element.clientWidth + scrollbarWidth) return;
+              this._saveInitialAttribute(element, styleProperty);
+              const calculatedValue = window.getComputedStyle(element).getPropertyValue(styleProperty);
+              element.style.setProperty(styleProperty, callback(Number.parseFloat(calculatedValue)) + 'px');
+            });
+          }
+          _saveInitialAttribute(element, styleProperty) {
+            const actualValue = element.style.getPropertyValue(styleProperty);
+            if (actualValue) Manipulator.setDataAttribute(element, styleProperty, actualValue);
+          }
+          _resetElementAttributes(selector, styleProperty) {
+            this._applyManipulationCallback(selector, (element) => {
+              const value = Manipulator.getDataAttribute(element, styleProperty);
+              if (value === null) {
+                element.style.removeProperty(styleProperty);
+                return;
+              }
+              Manipulator.removeDataAttribute(element, styleProperty);
+              element.style.setProperty(styleProperty, value);
+            });
+          }
+          _applyManipulationCallback(selector, callBack) {
+            if (selector instanceof Element) callBack(selector);
+            else for (const el of this._element.querySelectorAll(selector)) callBack(el);
+          }
+        }
+        const scrollBar = new ScrollBarHelper();
+        globalThis.openModal = () => { scrollBar.hide(); document.body.classList.add('modal-open'); };
+        globalThis.closeModal = () => { document.body.classList.remove('modal-open'); scrollBar.reset(); };
+      </script>`),
+    async run({ p, failures }) {
+      const read = () => p.evaluate(() => ({
+        style: ['body', '#bar'].map((s) => document.querySelector(s).getAttribute('style')),
+        text: document.querySelector('p').getBoundingClientRect().right,
+        bar: document.getElementById('bar').getBoundingClientRect().right,
+      }));
+      const plain = await read();
+      await injectDuofari(p);
+      await p.evaluate(() => globalThis.openModal());
+      await settle(p, 700);
+      const open = await read();
+      if (!near(open.text, plain.text)) failures.push(`with the modal open the text ends at ${open.text}, not ${plain.text}`);
+      if (!near(open.bar, VW + C)) failures.push(`with the modal open the sticky bar ends at ${open.bar}`);
+      await p.evaluate(() => globalThis.closeModal());
+      await settle(p, 700);
+      const closed = await read();
+      if (!near(closed.text, plain.text)) failures.push(`after the modal closed the text ends at ${closed.text}, not ${plain.text}`);
+      await turnOff(p);
+      const off = await read();
+      off.style.forEach((attr, i) => {
+        if (attr !== plain.style[i]) failures.push(`${['<body>', 'the sticky bar'][i]} kept style="${attr}" after turning off (was ${plain.style[i]})`);
+      });
+      if (!near(off.text, plain.text) || !near(off.bar, plain.bar)) failures.push(`after turning off the text ends at ${off.text} and the bar at ${off.bar}, not ${plain.text} and ${plain.bar}`);
+    },
+  },
+
+  {
+    name: 'r4-engine-5',
+    what: "art drawn by a pseudo-element of a wrapper inside a hero's container continues under the column",
+    html: page(`
+      .hero { position: relative; height: 240px; background: #222; color: #fff; }
+      .hero .wrap::before { content: ''; position: absolute; inset: 0; background: url(img/hero.jpg) center / cover; }
+      .hero h1 { position: relative; margin: 0; padding: 16px; }`,
+    `<section class="hero" id="hero"><div class="container"><div class="wrap" id="wrap"><h1>Title</h1></div></div></section>${paragraphs(20)}`),
+    async run({ p, failures }) {
+      await injectDuofari(p);
+      const s = await p.evaluate(() => ({
+        hero: document.getElementById('hero').getBoundingClientRect().right,
+        art: getComputedStyle(document.getElementById('wrap'), '::before').width,
+      }));
+      if (!near(s.hero, VW + C)) failures.push(`hero not extended (right edge ${s.hero})`);
+      if (s.art !== `${VW + C}px`) failures.push(`the art is ${s.art} wide, leaving the bare background beside it under the column`);
+    },
+  },
 ];
 
 const CASES = [...ENGINE, ...LIFECYCLE];

@@ -145,9 +145,11 @@
       scrollers,
       observeRoot,
     };
-    // A pass cut short goes on where it stopped; anything else that asks for
-    // a scan meanwhile starts a fresh pass from the top.
-    ctx.resume = state.resuming ? state.cursor : null;
+    // A pass cut short goes on where it stopped. Anything else that asks for
+    // a scan meanwhile has the page walked again from the top once that pass
+    // is done.
+    ctx.resume = state.cursor;
+    ctx.again = !state.resuming;
     const stats = D.scan(ctx);
     state.stats = stats;
     state.lastScrollY = globalThis.scrollY;
@@ -155,7 +157,7 @@
     clearTimeout(state.resumeTimer);
     if (stats.cursor) {
       state.resumeTimer = setTimeout(() => {
-        if (state.timer) return; // a fresh pass is on its way
+        if (state.timer) return; // a scan is on its way, and goes on from the cursor too
         state.resuming = true;
         run();
         state.resuming = false;
@@ -215,6 +217,7 @@
 
   function resetChanges() {
     D.revertAll();
+    state.cursor = null; // the next pass starts from the page's own layout
   }
 
   /** Counts on/off changes; true (stand down) if they come too fast. */

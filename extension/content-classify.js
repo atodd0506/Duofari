@@ -245,9 +245,13 @@
   /**
    * One slice of a pass over the page. A pass cut short by the budget or the
    * deadline returns `stats.cursor`; given back as `ctx.resume`, the next
-   * slice goes on from there, so a large page is walked to the end.
+   * slice goes on from there, so a large page is walked to the end. With
+   * `ctx.again` (the page changed meanwhile) the page is walked again from
+   * the top once that pass is done: a fresh pass never throws away an
+   * unfinished one, so a page that changes more often than one pass takes is
+   * still walked to the end.
    * @param {object} ctx  { layoutWidth, viewportHeight, C, left, right, media, settings, budget, deadline,
-   *                        touchRoots:Set, scrollers:Set, observeRoot(root), resume }
+   *                        touchRoots:Set, scrollers:Set, observeRoot(root), resume, again }
    */
   D.scan = function scan(ctx) {
     const stats = { visited: 0, applied: 0, reverted: 0, truncated: false, waiting: false, cursor: null };
@@ -263,8 +267,9 @@
     const colorCache = new Map();
     const layoutKey = `${vw}|${C}|${sides.left}|${sides.right}|${!!ctx.media}`;
     const resume = ctx.resume && ctx.resume.layoutKey === layoutKey && ctx.resume.body === body ? ctx.resume : null;
-    // brokenOut: photos reverted from a breakout earlier in this pass.
-    const state = resume ? resume.state : { leadTaken: false, brokenOut: new Set() };
+    let state = resume ? resume.state : null;
+    let stack = resume ? resume.stack : [];
+    let again = !resume || resume.again || !!ctx.again;
     const scrollY = globalThis.scrollY;
 
     if (ctx.touchRoots) {
@@ -273,25 +278,24 @@
       if (resume) for (const root of resume.touchRoots) ctx.touchRoots.add(root);
     }
 
-    if (!resume) {
-      // Whatever Duofari writes into editable content would be saved with it.
-      for (const [el, rec] of D.records) if (!rec.owner && el.isContentEditable) D.revert(el);
-
-      // <body> is never walked itself, but it can be a clipper Duofari opened.
-      const bodyRec = D.records.get(body);
-      if (bodyRec && bodyRec.dirty && [body, ...bodyRec.pins.map((p) => p.el)].some(transitioning)) {
-        stats.waiting = true;
-      } else if (bodyRec && !(D.stillValid(bodyRec) && D.repinLatecomers(bodyRec, vw))) {
-        invalidate(bodyRec, state, stats);
-      }
-    }
-
-    const stack = resume ? resume.stack : childElements(body).reverse();
-    while (stack.length) {
+    while (stack.length || again) {
       if (stats.visited >= ctx.budget || (ctx.deadline && performance.now() > ctx.deadline)) {
         stats.truncated = true;
-        stats.cursor = { layoutKey, body, state, stack, touchRoots: ctx.touchRoots || [] };
+        stats.cursor = { layoutKey, body, state, stack, again, touchRoots: ctx.touchRoots || [] };
         break;
+      }
+      if (!stack.length) {
+        // A new pass, from the top, which finds its own touch roots.
+        // brokenOut: photos reverted from a breakout earlier in it.
+        again = false;
+        state = { leadTaken: false, brokenOut: new Set() };
+        if (ctx.touchRoots) {
+          ctx.touchRoots.clear();
+          ctx.touchRoots.add(document.documentElement).add(body);
+        }
+        beginPass(body, state, stats, vw);
+        stack = childElements(body).reverse();
+        continue;
       }
       const el = stack.pop();
       const tag = el.localName;
@@ -310,9 +314,7 @@
       if (rec && rec.kind === 'pin') continue;
       if (rec) {
         const leaf = rec.kind === 'media' || rec.kind === 'breakout';
-        // Restyled by the page, which started a transition: reverting now
-        // (with transitions off) would cut it short. Wait until it ends.
-        if (rec.dirty && [el, ...rec.pins.map((p) => p.el)].some(transitioning)) {
+        if (mustWait(rec)) {
           stats.waiting = true;
           if (!leaf) descend(stack, el, getComputedStyle(el), r, ctx, vw);
           continue;
@@ -386,6 +388,20 @@
 
     return stats;
   };
+
+  /** What a pass does once, before it walks <body>'s children. */
+  function beginPass(body, state, stats, vw) {
+    // Whatever Duofari writes into editable content would be saved with it.
+    for (const [el, rec] of D.records) if (!rec.owner && el.isContentEditable) D.revert(el);
+
+    // <body> is never walked itself, but it can be a clipper Duofari opened.
+    const bodyRec = D.records.get(body);
+    if (bodyRec && mustWait(bodyRec)) {
+      stats.waiting = true;
+    } else if (bodyRec && !(D.stillValid(bodyRec) && D.repinLatecomers(bodyRec, vw))) {
+      invalidate(bodyRec, state, stats);
+    }
+  }
 
   /** Visits an element's children, unless it is a small scroll container (carousel, tab strip). */
   function descend(stack, el, cs, rect, ctx, vw) {
@@ -556,6 +572,19 @@
 
   function sameSides(a, b) {
     return !!a && a.left === b.left && a.right === b.right;
+  }
+
+  /**
+   * Whether a record the page restyled has started a transition: reverting
+   * now (with transitions off) would cut it short, so it waits until it
+   * ends. That goes for the boxes it pinned and, in a clipper, for anything
+   * extended inside it, which is reverted with it.
+   */
+  function mustWait(rec) {
+    if (!rec.dirty) return false;
+    const els = [rec.el, ...rec.pins.map((p) => p.el)];
+    if (rec.clips) for (const el of D.records.keys()) if (el !== rec.el && rec.el.contains(el)) els.push(el);
+    return els.some(transitioning);
   }
 
   /**
