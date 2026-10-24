@@ -41,7 +41,7 @@ what Duofari did on the current page and holds all its settings.
 | Right-to-left pages in portrait | Left alone. |
 | Pages laid out for desktop screens | Skipped unless you turn on **Also adjust desktop-layout pages**. |
 | Some web apps, such as Google Docs, Figma, Slack and Notion | Off by default. You can turn Duofari on for each one. |
-| Safari's own pages, Reader, PDFs | Not changed. |
+| Safari's own pages (such as the Start Page), Reader, PDFs, and files such as an SVG image opened on their own | Not changed. |
 | Embedded content (frames) | Not changed. |
 
 ## What the popup is telling you
@@ -53,31 +53,35 @@ Duofari is not working, the popup says why:
 | The popup says | What it means | What you can do |
 |---|---|---|
 | Checking this page… | Duofari is still starting on this page. | Wait a moment, then open the popup again. |
-| On, nothing to extend yet | Duofari is on, but nothing on this page reaches the right edge with a background or picture that can continue. | Nothing. Many pages have nothing to extend. In landscape with **Auto**, images are never extended. |
+| On, nothing to extend yet | Duofari is on, but nothing on this page reaches the edge beside Safari's controls with a background or picture that can continue. | Nothing. Many pages have nothing to extend. In landscape with **Auto**, images are never extended. |
 | Not an iPhone Duo | The screen doesn't look like iPhone Duo's. | On another iPhone, this is expected. On iPhone Duo, see [Private Browsing](#private-browsing-and-profiles). |
 | Nothing to extend here: "Safari is using the full width of the screen." | iPhone Duo is open. Safari has no side column on the inner display. | Fold iPhone Duo. Duofari applies again on the outer display. |
 | Nothing to extend here: "Safari’s side column isn’t showing next to this page." | The space beside the page is wider than 110 points, which can't be Safari's column. | If you see this while folded, [send a report](#send-a-report). |
 | Desktop layout | The page is laid out for a wider screen, so Safari shows it zoomed out. | Turn on **Also adjust desktop-layout pages** under **More**. |
 | Controls on the wrong side | Safari's controls are on the side where the page's lines begin. Pages can only extend past the edge where their lines end. This happens with right-to-left pages in portrait, and with left-to-right pages in landscape when the controls are on the left. | Nothing for that page. In landscape, if Safari's controls are really on the right, set **Safari’s controls in landscape** to **Right** under **More**. |
 | Reduce Transparency is on | Duofari stands down when Reduce Transparency is on, because Safari's column may become opaque and hide anything under it. Whether Safari tells pages about this setting has not been confirmed. | To use Duofari, turn off **Reduce Transparency** in **Settings > Accessibility > Display & Text Size**. |
-| Paused on this page | The page kept changing size while Duofari worked: more than 4 on/off changes in 10 seconds. Duofari stepped back. | Reload the page. Changing any setting in the popup also makes Duofari try again. If it keeps pausing, [send a report](#send-a-report). |
+| Paused on this page | The page kept changing size while Duofari worked: more than 4 on/off changes in 10 seconds, with the phone in one position. Folding, unfolding and rotating don't count. Duofari stepped back. | Reload the page. Changing any setting in the popup, or going to another page on the site, also makes Duofari try again. If it keeps pausing, [send a report](#send-a-report). |
+| Paused while zoomed in | You're pinch-zoomed in, and Duofari hadn't changed the page before you zoomed in (for example, the page was already zoomed in when Duofari started on it). Duofari doesn't start on a page while it's zoomed in. | Zoom back out. Duofari then applies itself to the page. |
 | Duofari is off | The main switch is off. | Turn on **Duofari on all websites** under **More**. |
 | Off for this site | You turned Duofari off for this site. | Turn on the **On for** switch near the top of the popup. |
 | Off for this web app | The site is on Duofari's list of web apps that draw their own full-screen interface. | To try Duofari there, turn on the **On for** switch. |
 | Not active | A state the popup has no message for. | [Send a report](#send-a-report). |
 
-While you're pinch-zoomed in, Duofari leaves the page as it is and the popup keeps showing the
-status from before you zoomed. The popup has a "Paused while zoomed in" message, but this
-version never shows it.
+If you zoom in on a page Duofari has already worked on, Duofari leaves the page as it is and the
+popup keeps showing the status from before you zoomed. If Duofari had stopped for a reason, such
+as "Not an iPhone Duo" or "Nothing to extend here", the popup keeps showing that reason. Turning
+Duofari off, for the site or everywhere, still takes effect at once while you're zoomed in.
 
 The popup can also say:
 
 | The popup says | What it means | What you can do |
 |---|---|---|
 | No page open | No page is open in the current tab. | Open a web page. |
-| Duofari can’t change this kind of page | Safari's own pages, Reader and PDFs can't be changed. | Nothing. Duofari works on websites. |
-| Duofari can’t see this site yet | Duofari doesn't have access to this site. | Tap **Allow on All Websites**, then accept Safari's prompt. You can also allow it in **Settings > Apps > Safari > Extensions > Duofari**, under **Permissions**. |
-| Duofari hasn’t run on this page yet | The page was open before Duofari was turned on, or it's still loading. | Tap **Apply to This Page**. If Duofari can't run on the page as it is, it reloads the page. |
+| Duofari can’t change this kind of page | Safari's own pages, Reader, PDFs, and files such as an SVG image opened on their own can't be changed. The popup also says this when **Apply to This Page** couldn't run Duofari on the page, for example on a PDF whose address doesn't end in `.pdf`. | Nothing. Duofari works on web pages. |
+| Duofari can’t see this page | Duofari is allowed on all websites, but Safari hides this page from it. This is Safari's Start Page (or an empty tab), or a website set to **Deny** for Duofari. | On the Start Page, nothing. For a website, change its setting under **Permissions** in **Settings > Apps > Safari > Extensions > Duofari**. |
+| Duofari can’t see this site yet | Duofari doesn't have access to this site. | Tap **Allow on All Websites**, then accept Safari's prompt. Duofari then runs on the open page straight away. You can also allow it in **Settings > Apps > Safari > Extensions > Duofari**, under **Permissions**. |
+| For now Duofari can see only this page | Shown in place of the usual detail under the status. Opening the popup let Duofari run on this page, but Safari hasn't given it access to the site, so it stops when the tab goes to another site. | Tap **Allow on All Websites**, then accept Safari's prompt. |
+| Duofari hasn’t run on this page yet | The page was open before Duofari was turned on, or it's still loading. | Tap **Apply to This Page**. If Duofari can't run on the page, the popup says "Duofari can’t change this kind of page" instead. It doesn't reload the page. |
 
 ## Common questions
 
@@ -114,11 +118,13 @@ show. To keep it whole too, turn off **Lead image and wide artwork**.
 Extending a header under Safari's column makes the page wider than the screen, so it could be
 dragged sideways. **Hold pages steady** (under **More**, on by default) stops that:
 
-- While it's on, you can only scroll the page itself up and down. Carousels and other parts of
-  the page that scroll sideways keep working.
+- While it's on, you can only scroll the page itself up and down. Carousels, boards and other
+  parts of the page that scroll sideways keep working.
+- If the page itself turned off pinch-zoom or other gestures, they stay off. Duofari never turns
+  a gesture back on.
 - While it's off, a page can be pushed sideways, but it slides back once scrolling stops.
-- If a page could already scroll sideways before Duofari, Duofari leaves that alone. It only
-  stops the page from going further than it could before.
+- If a page can scroll sideways by itself, for example to show a wide table, Duofari doesn't
+  hold it. It only puts the page back if it goes further than the page's own content reaches.
 - While you're pinch-zoomed in, Duofari stops holding the page, so you can move around the
   zoomed page freely.
 
@@ -128,7 +134,8 @@ If a page slides sideways and stays there while **Hold pages steady** is on,
 ### Double-tap zoom or swiping back doesn't work
 
 **Hold pages steady** turns off double-tap zoom, and swiping back from the middle of a page.
-Pinch-to-zoom still works. To get both back, turn off **Hold pages steady** under **More**.
+Pinch-to-zoom still works, unless the page itself turned it off. To get both back, turn off
+**Hold pages steady** under **More**.
 Pages may then slide sideways a little when you swipe, and slide back after you scroll.
 
 ### Landscape
@@ -216,10 +223,11 @@ What **Diagnostics** contains:
 - screen size, pixel ratio, viewport sizes, zoom, orientation and text direction;
 - the page's viewport meta tag, the measured column width and side, and the page's own sideways
   overflow;
-- whether the page is held steady, and how many bars and images were extended;
+- Duofari's status code for the page, whether the page is held steady, and how many bars and
+  images were extended;
 - the screen information from the Duofari app, including the iPhone's model identifier;
 - Safari's user agent string;
-- if Duofari hasn't run on the page, the page's address.
+- if Duofari hasn't run on the page, just the version and the page's address.
 
 Issues are public. Read the text before you post it, and remove anything you'd rather not share.
 Duofari never sends any of this by itself. See [PRIVACY.md](PRIVACY.md).

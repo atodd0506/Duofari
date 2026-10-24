@@ -26,7 +26,7 @@ everything in angle brackets, such as `<your-repo-url>`, with your own values.
 
 ## Before you submit
 
-- [ ] `npm test` passes: unit tests, fixture tests and popup tests.
+- [ ] `npm test` passes: unit, fixture, regression and popup tests.
 - [ ] You ran the device check on an iPhone Duo or in the iPhone Duo Simulator, folded, in
       portrait.
 - [ ] The version in `extension/manifest.json` is the one you want to release.
@@ -253,7 +253,7 @@ data that leaves the device. Nothing Duofari handles ever leaves it:
 |---|---|
 | No network requests | `extension/*.js` contains no `fetch`, `XMLHttpRequest`, `sendBeacon`, `WebSocket` or `EventSource`. The Swift files in `apple/` contain no `URLSession`. The only `URL` in the app opens the Settings app (`UIApplication.openSettingsURLString`). |
 | Settings stay on the device | `shared-settings.js` reads and writes `storage.local` only. Its comment notes that `storage.sync` doesn't sync in Safari anyway. |
-| The native message carries only device facts | `background.js` sends `{ type: 'device' }`. `SafariWebExtensionHandler.swift` replies with `screenWidth`, `screenHeight`, `scale`, `nativeScale` and `model`. `background.js` stores the size, scale, model and the time of the check as `device` in `storage.local`. Any other message gets `{ ok: true }`. |
+| The native message carries only device facts | `background.js` sends `{ type: 'device' }`. `SafariWebExtensionHandler.swift` replies with `screenWidth`, `screenHeight`, `scale`, `nativeScale` and `model`. `background.js` stores the size, scale and model as `device` in `storage.local`, and writes it only when the answer changes. Any other message gets `{ ok: true }`. |
 | No tracking, no third-party code | No analytics, advertising or crash-reporting SDKs. `extension/` has no dependencies. The only `devDependency` is Playwright, used by the tests. |
 | Privacy manifests agree | `apple/Duofari/PrivacyInfo.xcprivacy` and `apple/Duofari Extension/PrivacyInfo.xcprivacy` declare no tracking, no tracking domains, no collected data types and no required-reason APIs. |
 
@@ -295,7 +295,7 @@ To try it on iPhone Duo:
 1. Open Duofari and tap Open Settings (or go to Settings > Apps > Safari > Extensions > Duofari).
 2. Switch on Allow Extension. Under Permissions, set All Websites to Allow.
 3. Fold the phone and open Safari in portrait. Visit <demo-page-url>, or any site with a coloured header bar.
-4. The header colour and the top image continue under Safari's side controls. Tap the extensions button in Safari and choose Duofari. The popup reports what it changed, for example "Extended 2 bars and 1 image" and "Safari’s controls take 84 points on the right."
+4. The header colour and the top image continue under Safari's side controls. Tap the extensions button in Safari and choose Duofari. The popup reports what it changed, for example "Extended 2 bars and 1 image" and "Safari’s controls take 84 points on the right." If All Websites is not set to Allow, the popup shows "For now Duofari can see only this page" in place of the second line (or says "Duofari can’t see this site yet") and offers Allow on All Websites, which asks Safari for access.
 5. Under More, turn on "Show what’s extended" to outline every element Duofari changed. Turn off "On for <site>" to see the page without Duofari. The page changes back at once, without a reload.
 
 Without an iPhone Duo: the attached screen recording shows the same steps in the iPhone Duo Simulator in Xcode 27.1, folded, in portrait.

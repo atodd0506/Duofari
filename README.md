@@ -30,10 +30,11 @@ What extends (each item has a switch in the popup):
 What never moves or extends:
 
 - Text, links, buttons and form controls keep their position (only **Enlarge photos inside page
-  margins** pushes text down). The tests check that no text or control moves sideways.
-- Carousel slides, video players and videos with controls, iframes, canvas and SVG are left
-  alone. Pictures that look like charts, diagrams, maps or screenshots (judged by class names,
-  alt text and file type) are never scaled up or trimmed.
+  margins** pushes text down). The tests check that no text or control moves, sideways or up and
+  down.
+- Carousel slides, video players and videos with controls, iframes, canvas, SVG and editable
+  areas (`contenteditable`) are left alone. Pictures that look like charts, diagrams, maps or
+  screenshots (judged by class names, alt text and file type) are never scaled up or trimmed.
 - Full-screen fixed overlays (menus, modals) are left alone. Nothing hidden beside the viewport,
   such as an off-canvas menu, is revealed.
 - The page does not scroll sideways. See "Hold pages steady" below.
@@ -51,11 +52,13 @@ How it works, in short (details in [docs/DESIGN.md](docs/DESIGN.md)):
   Every change is measured and rolled back if content moved. Fixed bars also get an identity
   `translate`: going by WebKit's source, that lets them paint past the layout viewport (not yet
   confirmed on a device). On pages whose own content fits, `initial-scale=1` and
-  `minimum-scale=1` are added to the viewport meta so Safari does not zoom out to fit the wider
-  content.
-- **Clean undo.** Changes are inline styles with the originals saved. Turning Duofari off
-  restores them exactly. Copies the page makes of changed elements (such as sticky-header clones)
-  are cleaned up as soon as they appear.
+  `minimum-scale=1` are added to the viewport meta where they are missing, so Safari does not
+  zoom out to fit the wider content. If the page's own initial scale is below 1, the minimum
+  scale is set to that instead.
+- **Clean undo.** Changes are inline styles with the originals saved. Turning Duofari off puts
+  the originals back; on an element it extended, a value the page set itself in the meantime is
+  kept. Copies the page makes of changed or locked elements (such as sticky-header clones) are
+  cleaned up as soon as they appear, even while Duofari is off.
 
 ## Where it works
 
@@ -67,7 +70,7 @@ How it works, in short (details in [docs/DESIGN.md](docs/DESIGN.md)):
 | The column on the page's start side: right-to-left pages in portrait, or left-to-right pages with the column on the left in landscape | Left alone. A page can only paint past its end edge. |
 | Desktop-layout pages (no viewport meta, or a fixed width wider than the screen) | Skipped unless **Also adjust desktop-layout pages** is on. |
 | Reduce Transparency | Stands down when `prefers-reduced-transparency: reduce` matches. |
-| Safari's own pages, Reader, PDFs | Not changed. Duofari works on websites only. |
+| Safari's own pages (such as the Start Page), Reader, PDFs, and files such as an SVG image opened on their own | Not changed. Duofari works on web pages only, and the popup says so. |
 | Built-in list of web apps (Google Docs, Figma, Slack and others in `extension/shared-settings.js`) | Off by default. You can turn it on per site. |
 | Other iPhones | Idle. |
 
@@ -109,16 +112,23 @@ Tap the extensions button in Safari and choose Duofari. The popup shows:
   controls take 84 points on the right". When it does nothing, the popup says why: not an iPhone
   Duo, desktop layout, controls on the wrong side, Reduce Transparency, and so on.
 - **Site access.** If Duofari can't see the site, **Allow on All Websites** asks Safari for
-  access. If the page was opened before Duofari was on, **Apply to This Page** runs it without a
-  reload.
+  access to all websites, then runs Duofari on the page. Opening the popup also gives Duofari
+  access to the open page, but only until the tab goes to another site. The popup then shows the
+  page's status with "For now Duofari can see only this page" and the same button. If the page
+  was opened before Duofari was on, **Apply to This Page** runs it without a reload. Where
+  Duofari can't run (Safari's own pages, PDFs), the popup says so and never reloads the page.
 - **On for *site*.** Turns Duofari off or on for the current site.
 - **Extend under the controls.** The four settings in the table above.
 - **More:**
   - **Safari’s controls in landscape:** Auto, Left or Right.
   - **Hold pages steady:** on by default. It sets `touch-action: pan-y pinch-zoom` on `html`,
-    `body` and scrolling wrappers, so the page can't be dragged sideways. Turn it off to keep
-    double-tap zoom and swiping back from the middle of a page. Pages then slide back after
-    scrolling settles.
+    `body` and scrolling wrappers, so the page can't be dragged sideways. Where the page set a
+    `touch-action` of its own, Duofari only takes sideways panning out of it, so anything the
+    page turned off (pinch-zoom, say) stays off. Wrappers that scroll sideways themselves, such
+    as carousels, keep their panning. The lock comes off while you're pinch-zoomed in, and it
+    isn't set on pages that can scroll sideways by themselves. Turn it off to keep double-tap
+    zoom and swiping back from the middle of a page. Pages then slide back after scrolling
+    settles.
   - **Also adjust desktop-layout pages.**
   - **Show what’s extended:** outlines extended elements and hatches the column.
   - **Duofari on all websites:** the main switch.
@@ -131,20 +141,30 @@ Tap the extensions button in Safari and choose Duofari. The popup shows:
 ```sh
 npm install
 npx playwright install chromium
-npm test              # unit tests, fixture tests and popup tests
+npm test              # unit, fixture, regression and popup tests
 npm run test:live     # 16 live websites (needs network)
 ```
 
-- `npm run test:unit`: the geometry tests in `test/unit/geometry.test.mjs` (`node:test`).
-- `npm run test:fixtures`: `test/run-fixtures.mjs` runs 23 cases against the pages in
+- `npm run test:unit`: 22 tests with `node:test`. `test/unit/geometry.test.mjs` (20 tests)
+  covers the column measurement and the per-site switch. `test/unit/background.test.mjs`
+  (2 tests) checks that the background script stores the device the app reports, and rewrites
+  it only when the answer changes.
+- `npm run test:fixtures`: `test/run-fixtures.mjs` runs 26 cases against the pages in
   `test/fixtures/`. It emulates the folded Duo (viewport 382 × 580, screen 466 × 678, DPR 3);
   a few cases use landscape, unfolded or an ordinary iPhone instead.
-  It checks pixels under the column and these invariants: no text moves, nothing hidden is
-  revealed, no sideways scroll, and a clean revert. Pass case names to run only some cases:
-  `node test/run-fixtures.mjs blog news`.
-- `npm run test:popup`: popup states with a mocked browser API.
-- `npm run test:live`: the same invariants on live sites; `node test/run-live.mjs https://…`
-  tests specific pages. Previews and reports go to `test/output/`.
+  It checks pixels under the column and these invariants: no text, control or pseudo-element
+  moves, nothing hidden is revealed, no sideways scroll, and a clean revert (apart from the
+  single-page-app case, the DOM is the same byte for byte after turning Duofari off). Pass
+  case names to run only some cases: `node test/run-fixtures.mjs blog news`.
+- `npm run test:regressions`: `test/run-regressions.mjs` runs 48 cases, each built around one
+  defect found in review, and checks the behaviour its fix restored. Pass names to run only
+  some: `node test/run-regressions.mjs engine-4`.
+- `npm run test:popup`: 15 popup states with a mocked browser API, including the site access
+  states, PDFs and Safari's Start Page.
+- `npm run test:live`: the same invariants on live sites, and that turning Duofari off puts back
+  every element it changed, the touch settings of `html` and `body`, and the viewport meta;
+  `node test/run-live.mjs https://…` tests specific pages. Previews and reports go to
+  `test/output/`.
 
 Emulation can't show what Safari really paints. To check a device, run `node test/serve.mjs`
 (optional port, default 8080) and open the printed `http://<address>:8080/device/` in Safari on
@@ -187,7 +207,7 @@ extension/            MV3 web extension (the code that runs in Safari)
   _locales/en/        strings
 apple/                SwiftUI containing app, extension target, Duofari.xcodeproj
 scripts/              gen-xcodeproj.py, package.mjs, build-icons.mjs, build-fixture-images.mjs, icon SVGs
-test/                 unit tests, fixture/popup/live runners, lib/duo.mjs emulation, device/ check page
+test/                 unit tests, fixture/regression/popup/live runners, lib/duo.mjs emulation, device/ check page
 docs/                 DESIGN.md, TESTING.md, APPSTORE.md, images/
 ```
 
@@ -212,14 +232,22 @@ docs/                 DESIGN.md, TESTING.md, APPSTORE.md, images/
   **Also adjust desktop-layout pages** is on.
 - **Top frame only.** Content inside iframes is not changed.
 - **Pages that keep resizing.** If Duofari has to switch on and off more than 4 times within 10
-  seconds on a page, it pauses there. The popup says "Paused on this page".
+  seconds on a page, it pauses there. The popup says "Paused on this page". Folding, unfolding
+  and rotating don't count. Changing a setting, or going to another page (in a single-page app
+  too), gives the page a fresh start.
+- **Pages that rewrite their viewport meta.** Duofari puts its additions back at most 5 times in
+  10 seconds. A page that rewrites it more often than that keeps its own meta, and Safari may
+  then zoom the page out to fit the extended content.
+- **Pinch-zoomed in.** While you're zoomed in, Duofari keeps the page as it was and doesn't
+  measure it again until you zoom back out. A page that was already zoomed in when Duofari
+  started is left unchanged until then; the popup says "Paused while zoomed in".
 
 ## Privacy
 
 Duofari collects no data. It runs on your iPhone, stores its settings in the extension's local
 storage, and sends nothing anywhere. It asks the containing app for one thing: the screen size,
-scale and model, which it uses to detect the column. It needs access to all websites so it can
-adjust pages as they open. See [PRIVACY.md](PRIVACY.md).
+scale and model. It uses the size and scale to detect the column. It needs access to all
+websites so it can adjust pages as they open. See [PRIVACY.md](PRIVACY.md).
 
 ## More documentation
 

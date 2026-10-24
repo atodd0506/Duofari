@@ -16,10 +16,12 @@ Safari extension that comes with it.
 ## What the extension reads on web pages
 
 The extension runs on `http` and `https` pages, in the top frame only. Content inside frames is
-not touched. On each page it reads:
+not touched. Where the tab shows a file such as an SVG image on its own, it only tells the
+popup the host name and that it can't change that kind of page. On each web page it reads:
 
 - The layout: element sizes and positions, computed styles, and whether an element contains
-  text. It does this to find header bars, backgrounds and images that reach the right edge.
+  text. It does this to find header bars, backgrounds and images that reach the edge beside
+  Safari's column.
 - For images: the alt text, title, `aria-label`, file name and class names. These tell photos
   apart from charts, maps and screenshots, which Duofari leaves alone.
 - The screen and viewport: screen size, pixel ratio, layout and visual viewport size, zoom,
@@ -27,6 +29,8 @@ not touched. On each page it reads:
   `prefers-reduced-transparency` matches. From these Duofari works out whether Safari's side
   column is showing, and how wide it is.
 - The page's host name, such as `www.example.com`, to apply your per-site setting.
+- The page's address, to notice when a single-page app moves to a new page without loading
+  one.
 
 All of this stays in memory, in that page, while the page is open. None of it is sent anywhere.
 The only part that can be written to storage is a site's host name, and only when you use the
@@ -37,17 +41,23 @@ Duofari does not read form fields, passwords, cookies or your browsing history.
 ## What Duofari changes on pages, and what pages can see
 
 - **Inline styles.** Duofari adds inline styles, marked `!important`, to the elements it
-  extends. It saves the original values in a `data-duofari` attribute on each changed element,
-  so it can undo the change exactly.
+  extends. It keeps the original values so it can undo the change, and writes them into a
+  `data-duofari` attribute on each changed element, so that copies the page makes of the
+  element can be cleaned up too. When Duofari undoes a change, a value the page has set itself
+  since is kept.
 - **Page guard.** It sets `touch-action` on `html`, `body` and some wrappers, and
-  `overscroll-behavior-x` on `html`. This is the "Hold pages steady" setting. Whether that
-  setting is on or off, Duofari scrolls the page back if it slides sideways further than it
+  `overscroll-behavior-x` on `html`. This is the "Hold pages steady" setting. Each of these
+  elements also gets a `data-duofari-lock` attribute holding the page's own inline values for
+  those two properties, so that copies the page makes of them can be cleaned up too. Whether
+  that setting is on or off, Duofari scrolls the page back if it slides sideways further than it
   could without Duofari.
 - **Viewport meta.** On some pages it adds `initial-scale=1` and `minimum-scale=1` to the page's
-  viewport meta tag.
+  viewport meta tag, where they are missing. If the page's own initial scale is below 1, the
+  minimum scale is set to that instead.
 - **Helper elements.** It briefly adds an invisible measuring element marked
   `data-duofari-ui` and removes it straight away. When **Show what’s extended** is on, it also
-  adds an overlay and `data-duofari-debug` attributes.
+  adds an overlay and a style element, both marked `data-duofari-ui`, and `data-duofari-debug`
+  attributes.
 
 A page's own scripts can see these changes, so a website could tell that Duofari is running.
 Duofari gives the page nothing beyond these changes. Turning Duofari off for a site removes them
@@ -64,7 +74,7 @@ use `storage.sync` and does not copy them anywhere else.
 | `disabledSites` | Host names of sites you turned Duofari off for |
 | `enabledSites` | Host names of built-in excluded web apps (such as Google Docs or Figma) that you turned Duofari on for |
 | `force`, `forceColumn` | A testing switch (off) and a column width (84). Nothing in the popup or the app changes them. |
-| `device` | Your iPhone's screen width and height in points, its scale, its model identifier, and when Duofari last checked them (see the next section) |
+| `device` | Your iPhone's screen width and height in points, its scale and its model identifier (see the next section) |
 
 A site's host name is stored only when you use the **On for** switch in the popup. When you set a
 site back to its default, its name is removed from the list.
@@ -80,8 +90,9 @@ Duo, so the extension asks the Duofari app instead:
 - **The reply.** `SafariWebExtensionHandler.swift` answers with the main screen's width and
   height in points, its `scale` and `nativeScale`, and the hardware model identifier. Any other
   message gets `{ ok: true }`.
-- **What is kept.** `background.js` stores the width, height, scale, model and the time of the
-  check as `device`. It does not keep `nativeScale`.
+- **What is kept.** `background.js` stores the width, height, scale and model as `device`. It
+  writes them only when they differ from what it stored before. It does not keep `nativeScale`,
+  or when it asked.
 - **What it's used for.** The screen size and scale are used to recognise iPhone Duo. The model
   identifier is only shown in the popup's Diagnostics.
 - **Logging.** The handler writes each message and its reply to the iPhone's system log at debug
@@ -109,14 +120,15 @@ The app stores nothing and makes no network requests.
 | `storage` | To keep your settings (see above). |
 | `nativeMessaging` | To ask the Duofari app for the real screen size (see above). |
 | `scripting` | To run Duofari on a tab that was already open. The popup's **Allow on All Websites** and **Apply to This Page** buttons use it, so you don't have to reload. |
-| `activeTab` | To let the popup work with the tab you're looking at when you open it: ask it for its status, and run Duofari on it. |
+| `activeTab` | To let the popup work with the tab you're looking at when you open it: ask it for its status, and run Duofari on it. Safari gives this access to the open page only, until the tab goes to another site. |
 
-If Duofari has no access to the current site, the popup can ask Safari for access to all
-websites (`permissions.request`). Safari shows its own prompt, and you decide.
+The popup asks Safari whether Duofari has access to the current site (`permissions.contains`).
+If it hasn't, the popup can ask Safari for access to all websites (`permissions.request`).
+Safari shows its own prompt, and you decide.
 
-The popup reads the current tab's address to check that it is a web page. It asks the page for
-Duofari's status, and if you tap **Apply to This Page** and Duofari can't run, it reloads the
-tab.
+The popup reads the current tab's address to check that it is a web page and not a PDF. It asks
+the page for Duofari's status. If you tap **Apply to This Page** and Duofari can't run there, the
+popup says so; it doesn't reload the tab. The popup stores none of this.
 
 ## Diagnostics and bug reports
 
@@ -130,7 +142,8 @@ It contains:
 - screen size, pixel ratio, viewport sizes, zoom, orientation and text direction;
 - the page's viewport meta tag, the measured column, the side, and the page's own sideways
   overflow;
-- whether the touch lock is on, and the counts of what Duofari extended;
+- Duofari's status code for the page, whether the touch lock is on, and the counts of what
+  Duofari extended;
 - the device information from the app, including the model identifier;
 - Safari's user agent string.
 
