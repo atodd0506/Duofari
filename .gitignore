@@ -16,3 +16,6 @@ xcuserdata/
 
 # Packaging output
 dist/
+
+# Agent worktrees
+.claude/worktrees/
